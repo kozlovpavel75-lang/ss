@@ -13,9 +13,13 @@ import 'dart:async';
 import 'dart:math';
 
 void main() {
-  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(statusBarColor: Colors.transparent));
+  WidgetsFlutterBinding.ensureInitialized();
+  SystemChrome.setSystemUIOverlayStyle(
+      const SystemUiOverlayStyle(statusBarColor: Colors.transparent));
   runApp(const PromptApp());
 }
+
+// --- МОДЕЛІ ДАНИХ ---
 
 class Prompt {
   String id, title, content, category;
@@ -32,6 +36,8 @@ class PDFDoc {
   factory PDFDoc.fromJson(Map<String, dynamic> json) => PDFDoc(id: json['id'], name: json['name'], path: json['path']);
 }
 
+// --- ГОЛОВНИЙ ВХІД ---
+
 class PromptApp extends StatelessWidget {
   const PromptApp({super.key});
   @override
@@ -40,7 +46,7 @@ class PromptApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         brightness: Brightness.dark,
-        scaffoldBackgroundColor: const Color(0xFF040E22), 
+        scaffoldBackgroundColor: const Color(0xFF040E22),
         appBarTheme: const AppBarTheme(backgroundColor: Colors.transparent, elevation: 0),
         tabBarTheme: const TabBarTheme(
           labelColor: Color(0xFFFFD700),
@@ -48,10 +54,60 @@ class PromptApp extends StatelessWidget {
           indicator: UnderlineTabIndicator(borderSide: BorderSide(color: Color(0xFFFFD700), width: 2)),
         ),
       ),
-      home: const MainScreen(),
+      // Спочатку запускаємо SplashScreen
+      home: const SplashScreen(),
     );
   }
 }
+
+// --- ЕКРАН ЗАСТАВКИ (SPLASH SCREEN) ---
+
+class SplashScreen extends StatefulWidget {
+  const SplashScreen({super.key});
+  @override
+  State<SplashScreen> createState() => _SplashScreenState();
+}
+
+class _SplashScreenState extends State<SplashScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Затримка 1.5 секунди перед входом в архів
+    Timer(const Duration(milliseconds: 1500), () {
+      if (mounted) {
+        Navigator.pushReplacement(
+          context,
+          PageRouteBuilder(
+            pageBuilder: (context, animation, secondaryAnimation) => const MainScreen(),
+            transitionsBuilder: (context, animation, secondaryAnimation, child) {
+              return FadeTransition(opacity: animation, child: child);
+            },
+            transitionDuration: const Duration(milliseconds: 800),
+          ),
+        );
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Container(
+        width: double.infinity,
+        height: double.infinity,
+        decoration: const BoxDecoration(
+          image: DecorationImage(
+            image: AssetImage('assets/splash.jpg'),
+            fit: BoxFit.cover,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// --- ГОЛОВНИЙ ЕКРАН ---
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -64,7 +120,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   List<Prompt> prompts = [];
   List<PDFDoc> docs = [];
   List<String> auditLogs = [];
-  int _secretCounter = 0; // Для пасхалки
+  int _secretCounter = 0;
 
   final List<String> categories = ['ФО', 'ЮО', 'ГЕОІНТ', 'МОНІТОРИНГ', 'ІНСТРУМЕНТИ', 'ДОКУМЕНТИ'];
   final Color uaBlue = const Color(0xFF0057B7);
@@ -74,7 +130,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   void initState() {
     super.initState();
     _tabController = TabController(length: categories.length, vsync: this);
-    _tabController.addListener(() { setState(() {}); });
+    _tabController.addListener(() { if (mounted) setState(() {}); });
     _loadData();
   }
 
@@ -111,6 +167,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     await prefs.setStringList('audit_logs', auditLogs);
   }
 
+  // --- ФУНКЦІЇ ТА ДІАЛОГИ (Оригінальна логіка) ---
+
   void _importFromTxt() async {
     FilePickerResult? result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['txt']);
     if (result != null && result.files.single.path != null) {
@@ -134,7 +192,9 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
             else if (lineLow.startsWith('текст:')) { text = line.replaceFirst(RegExp(r'Текст:', caseSensitive: false), '').trim(); isText = true; }
             else if (isText) text += '\n$line';
           }
-          if (title.isNotEmpty && text.isNotEmpty) imported.add(Prompt(id: DateTime.now().millisecondsSinceEpoch.toString() + imported.length.toString(), title: title, content: text.trim(), category: cat));
+          if (title.isNotEmpty && text.isNotEmpty) {
+             imported.add(Prompt(id: "${DateTime.now().millisecondsSinceEpoch}_${imported.length}", title: title, content: text.trim(), category: cat));
+          }
         }
         setState(() => prompts.addAll(imported));
         _logAction("SYS: Імпортовано TXT (${imported.length} записів)");
@@ -148,7 +208,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   void _addOrEditPrompt({Prompt? p}) {
     final tCtrl = TextEditingController(text: p?.title ?? '');
     final cCtrl = TextEditingController(text: p?.content ?? '');
-    String selectedCat = p?.category ?? categories[_tabController.index > 3 ? 0 : _tabController.index];
+    String selectedCat = p?.category ?? (categories[_tabController.index > 3 ? 0 : _tabController.index]);
     if (selectedCat == 'ДОКУМЕНТИ' || selectedCat == 'ІНСТРУМЕНТИ') selectedCat = 'ФО';
 
     showDialog(context: context, builder: (ctx) => StatefulBuilder(
@@ -204,7 +264,6 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     }
   }
 
-  // СЕКРЕТНИЙ SYS.INFO З ТРИГЕРОМ ГРИ
   void _showSysInfo() {
     _secretCounter = 0;
     Map<String, int> stats = {'ФО': 0, 'ЮО': 0, 'ГЕОІНТ': 0, 'МОНІТОРИНГ': 0};
@@ -309,7 +368,13 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
               return ReorderableListView.builder(
                 padding: const EdgeInsets.only(top: 10, bottom: 90), itemCount: items.length,
                 onReorder: (oldIdx, newIdx) {
-                  setState(() { if (newIdx > oldIdx) newIdx -= 1; final item = items.removeAt(oldIdx); items.insert(newIdx, item); prompts.removeWhere((p) => p.category == cat); prompts.addAll(items); });
+                  setState(() { 
+                    if (newIdx > oldIdx) newIdx -= 1; 
+                    final item = items.removeAt(oldIdx); 
+                    items.insert(newIdx, item); 
+                    prompts.removeWhere((p) => p.category == cat); 
+                    prompts.addAll(items); 
+                  });
                   _save();
                 },
                 itemBuilder: (ctx, i) {
@@ -339,7 +404,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   }
 }
 
-// --- ТАКТИЧНИЙ СИМУЛЯТОР "KREMLIN COTTON" (2D Гра) ---
+// --- ТАКТИЧНИЙ СИМУЛЯТОР "KREMLIN COTTON" ---
 class CottonGame extends StatefulWidget {
   final Function(String) onLog;
   const CottonGame({super.key, required this.onLog});
@@ -361,23 +426,21 @@ class _CottonGameState extends State<CottonGame> with SingleTickerProviderStateM
     gameTimer = Timer.periodic(const Duration(milliseconds: 50), (t) {
       if (!mounted) return;
       setState(() {
-        // Рух цілей
         for (int i = 0; i < targets.length; i++) {
           targets[i] += 0.015;
           if (targets[i] > 1.1) targets[i] = -0.1;
         }
-        // Рух бомби
         if (bY >= 0) {
           bY += 0.04;
-          if (bY > 0.85) { // Рівень стіни
+          if (bY > 0.85) {
             for (int i = 0; i < targets.length; i++) {
-              if ((bX - targets[i]).abs() < 0.1) { // Влучання
+              if ((bX - targets[i]).abs() < 0.1) {
                 score++;
-                targets[i] = -0.5; // Прибираємо ціль
-                widget.onLog("БАВОВНА! Ціль №${score} ліквідована.");
+                targets[i] = -0.5;
+                widget.onLog("БАВОВНА! Ціль №$score ліквідована.");
               }
             }
-            bY = -1; bX = -1; // Бомба зникає
+            bY = -1; bX = -1;
           }
         }
       });
@@ -391,7 +454,6 @@ class _CottonGameState extends State<CottonGame> with SingleTickerProviderStateM
   Widget build(BuildContext context) {
     final w = MediaQuery.of(context).size.width;
     final h = MediaQuery.of(context).size.height;
-
     return Scaffold(
       backgroundColor: Colors.black,
       body: GestureDetector(
@@ -399,37 +461,30 @@ class _CottonGameState extends State<CottonGame> with SingleTickerProviderStateM
           double x = details.globalPosition.dx / w;
           if (x < 0.3) setState(() => dX = (dX - 0.1).clamp(0.05, 0.95));
           else if (x > 0.7) setState(() => dX = (dX + 0.1).clamp(0.05, 0.95));
-          else if (bY < 0) setState(() { bX = dX; bY = 0.15; }); // Скидання
+          else if (bY < 0) setState(() { bX = dX; bY = 0.15; });
         },
         child: Stack(
           children: [
-            // Силует Кремля та Вежі (Тактичний синій)
             Positioned(bottom: 0, left: 0, right: 0, height: 180, child: Stack(children: [
               Container(decoration: const BoxDecoration(color: Color(0xFF0A152F), borderRadius: BorderRadius.vertical(top: Radius.circular(30)))),
               Positioned(bottom: 0, left: w * 0.4, width: w * 0.2, height: 160, child: Column(children: [
-                Container(width: w * 0.15, height: 100, color: const Color(0xFF0057B7)), // Спаська вежа
-                Container(width: 20, height: 20, decoration: const BoxDecoration(shape: BoxShape.circle, color: Color(0xFFFFD700))), // Годинник
+                Container(width: w * 0.15, height: 100, color: const Color(0xFF0057B7)),
+                Container(width: 20, height: 20, decoration: const BoxDecoration(shape: BoxShape.circle, color: Color(0xFFFFD700))),
               ])),
             ])),
-            // Анімація ВОГНЮ на вежі
             AnimatedBuilder(animation: _fireCtrl, builder: (ctx, child) => Positioned(
               bottom: 160, left: w * 0.45, width: w * 0.1, height: 30,
               child: Container(decoration: BoxDecoration(color: Colors.orange.withOpacity(_fireCtrl.value * 0.8), borderRadius: BorderRadius.circular(10), boxShadow: [BoxShadow(color: Colors.orange, blurRadius: 20 * _fireCtrl.value)])))),
-            // Цілі (Впізнавані силуети)
             ...targets.map((tx) => AnimatedPositioned(
               duration: Duration.zero, bottom: 60, left: tx * w,
               child: const Column(children: [
-                CircleAvatar(radius: 6, backgroundColor: Colors.grey), // Лисина
-                Icon(Icons.person, color: Colors.white, size: 35), // Костюм
+                CircleAvatar(radius: 6, backgroundColor: Colors.grey),
+                Icon(Icons.person, color: Colors.white, size: 35),
               ]),
             )),
-            // Бомба
             if (bY >= 0) AnimatedPositioned(duration: Duration.zero, top: bY * h, left: bX * w, child: const Icon(Icons.wb_sunny, color: Colors.orange, size: 30)),
-            // Ударний Дрон
             AnimatedPositioned(duration: const Duration(milliseconds: 100), top: 80, left: dX * w - 30, child: const Icon(Icons.airplanemode_active, color: Color(0xFF60A5FA), size: 60)),
-            // Інфопанель
             Positioned(top: 40, left: 20, child: Text('SCORE: $score\nSTATUS: HOT_ZONE', style: const TextStyle(color: Colors.greenAccent, fontFamily: 'monospace', fontWeight: FontWeight.bold))),
-            // Вихід
             Positioned(bottom: 20, right: 20, child: IconButton(icon: const Icon(Icons.close, color: Colors.white24), onPressed: () => Navigator.pop(context))),
           ],
         ),
@@ -438,7 +493,8 @@ class _CottonGameState extends State<CottonGame> with SingleTickerProviderStateM
   }
 }
 
-// --- ІНШІ МОДУЛІ (СКАНЕР, EXIF, DORKS) ТЕЖ ОНОВЛЕНІ ---
+// --- ІНСТРУМЕНТАРІЙ (Tools) ---
+
 class ToolsMenuScreen extends StatelessWidget {
   final Function(String) onLog;
   const ToolsMenuScreen({super.key, required this.onLog});
@@ -472,7 +528,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
     _mt = Timer.periodic(const Duration(milliseconds: 50), (t) => setState(() => _m = List.generate(100, (i) => 'X')[Random().nextInt(5)]));
     await Future.delayed(const Duration(seconds: 1));
     final ip = RegExp(r'\b(?:\d{1,3}\.){3}\d{1,3}\b').allMatches(_c.text).map((m) => m.group(0)!).toList();
-    final em = RegExp(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}').allMatches(_c.text).map((m) => m.group(0)!).toList();
+    final em = RegExp(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-code-zA-Z]{2,}').allMatches(_c.text).map((m) => m.group(0)!).toList();
     _mt?.cancel(); setState(() { _is = false; _r = {'IP': ip, 'EMAIL': em}; });
     widget.onLog("SYS: Скан завершено. Знайдено ${ip.length + em.length} артефактів.");
   }
