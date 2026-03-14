@@ -1,5 +1,5 @@
 name: prompt_library
-description: OSINT АРХІВ. Спеціальний інструментарій.
+description: OSINT АРХІВ. Спеціальний інструментарій для збору та аналізу даних.
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -17,6 +17,7 @@ dependencies:
   exif: ^3.1.4
   intl: ^0.19.0
   permission_handler: ^11.3.1
+  archive: ^3.6.1 # Пакет для розпакування та читання DOCX архівів
 
 dev_dependencies:
   flutter_test:
