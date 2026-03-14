@@ -33,6 +33,13 @@ class PDFDoc {
   factory PDFDoc.fromJson(Map<String, dynamic> json) => PDFDoc(id: json['id'], name: json['name'], path: json['path']);
 }
 
+// НОВА МОДЕЛЬ: Підсилення Промпту
+class PromptEnhancer {
+  String name, desc, bestWith, warning, payload;
+  bool isSelected;
+  PromptEnhancer({required this.name, required this.desc, required this.bestWith, required this.warning, required this.payload, this.isSelected = false});
+}
+
 // --- ГОЛОВНИЙ ДОДАТОК ---
 class PromptApp extends StatelessWidget {
   const PromptApp({super.key});
@@ -138,7 +145,6 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     await prefs.setStringList('audit_logs', auditLogs);
   }
 
-  // ВІДНОВЛЕНА ПРАВИЛЬНА СТАТИСТИКА
   void _showSysInfo() {
     Map<String, int> stats = {'ФО': 0, 'ЮО': 0, 'ГЕОІНТ': 0, 'МОНІТОРИНГ': 0};
     for (var p in prompts) {
@@ -352,7 +358,7 @@ class ToolsMenuScreen extends StatelessWidget {
   );
 }
 
-// --- МЕНЕДЖЕР ПАРОЛІВ (НОВИЙ) ---
+// --- МЕНЕДЖЕР ПАРОЛІВ ---
 class PasswordManagerScreen extends StatefulWidget {
   final Function(String) onLog;
   const PasswordManagerScreen({super.key, required this.onLog});
@@ -567,7 +573,7 @@ class _NicknameGenScreenState extends State<NicknameGenScreen> {
   );
 }
 
-// --- DORKS SCREEN (З ГРУПАМИ ТА ПОЯСНЕННЯМИ) ---
+// --- DORKS SCREEN ---
 class DorksScreen extends StatefulWidget {
   final Function(String) onLog;
   const DorksScreen({super.key, required this.onLog});
@@ -702,7 +708,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
   );
 }
 
-// --- ВИПРАВЛЕНИЙ EXIF SCREEN ---
+// --- EXIF SCREEN ---
 class ExifScreen extends StatefulWidget {
   final Function(String) onLog;
   const ExifScreen({super.key, required this.onLog});
@@ -719,9 +725,9 @@ class _ExifScreenState extends State<ExifScreen> {
     setState(() { _isLoading = true; _error = ''; _data.clear(); });
 
     try {
-      FilePickerResult? r = await FilePicker.platform.pickFiles(type: FileType.image);
-      if (r != null && r.files.single.path != null) {
-        final bytes = await File(r.files.single.path!).readAsBytes();
+      FilePickerResult? r = await FilePicker.platform.pickFiles(type: FileType.image, withData: true);
+      if (r != null) {
+        final bytes = r.files.single.bytes ?? await File(r.files.single.path!).readAsBytes();
         final tags = await readExifFromBytes(bytes);
 
         if (tags.isEmpty) {
@@ -780,7 +786,7 @@ class _ExifScreenState extends State<ExifScreen> {
   }
 }
 
-// --- GEN SCREEN ---
+// --- GEN SCREEN З ТАКТИЧНИМ ПІДСИЛЕННЯМ (НОВЕ) ---
 class GenScreen extends StatefulWidget {
   final Prompt p;
   final Function(String) onLog;
@@ -791,16 +797,137 @@ class GenScreen extends StatefulWidget {
 
 class _GenScreenState extends State<GenScreen> {
   final Map<String, TextEditingController> _ctrls = {};
-  String _res = '';
+  String _baseCompiled = '';
+  String _finalRes = '';
+  bool _isCompiled = false;
   
+  // База технік підсилення
+  final List<PromptEnhancer> _enhancers = [
+    PromptEnhancer(
+      name: 'CoT (Chain of Thought)', 
+      desc: 'Змушує ШІ думати покроково.', 
+      bestWith: 'Складні логічні завдання, пошук зв\'язків.', 
+      warning: 'Відповідь буде значно довшою.', 
+      payload: 'Пояснюй свій хід думок крок за кроком (Step-by-step) перед тим, як надати фінальну відповідь.'
+    ),
+    PromptEnhancer(
+      name: 'ToT (Tree of Thoughts)', 
+      desc: 'Генерація та вибір гіпотез.', 
+      bestWith: 'Аналітика, коли є кілька підозрюваних або версій.', 
+      warning: 'Потребує багато токенів. Не сумісно з CoT.', 
+      payload: 'Розглянь мінімум 3 різні гіпотези. Проаналізуй кожну з них окремо, і наприкінці обери найбільш вірогідну.'
+    ),
+    PromptEnhancer(
+      name: 'Експертна Роль (Persona)', 
+      desc: 'Задає професійний тон.', 
+      bestWith: 'Будь-які OSINT запити.', 
+      warning: 'Немає.', 
+      payload: 'Дій як старший аналітик розвідки з 10-річним досвідом. Твоя відповідь має бути максимально професійною, без зайвої "води".'
+    ),
+    PromptEnhancer(
+      name: 'Жорстке Форматування (JSON)', 
+      desc: 'Видача результату у вигляді коду.', 
+      bestWith: 'Екстракція даних для подальшої обробки.', 
+      warning: 'Конфліктує з CoT (текст може поламати JSON).', 
+      payload: 'Поверни результат ВИКЛЮЧНО у форматі валідного JSON. Не пиши жодного тексту до або після JSON блоку.'
+    ),
+  ];
+
   @override
   void initState() {
     super.initState();
-    _res = widget.p.content;
     final reg = RegExp(r'\{([^}]+)\}');
     for (var m in reg.allMatches(widget.p.content)) {
       _ctrls[m.group(1)!] = TextEditingController();
     }
+  }
+
+  void _compileBase() {
+    String t = widget.p.content;
+    _ctrls.forEach((k,v) => t = t.replaceAll('{$k}', v.text.isEmpty ? '{$k}' : v.text));
+    setState(() {
+      _baseCompiled = t;
+      _isCompiled = true;
+    });
+    _updateFinalRes();
+    widget.onLog("Згенеровано базовий промпт: ${widget.p.title}");
+    FocusScope.of(context).unfocus();
+  }
+
+  void _updateFinalRes() {
+    if (!_isCompiled) return;
+    String r = _baseCompiled;
+    
+    final selected = _enhancers.where((e) => e.isSelected).toList();
+    if (selected.isNotEmpty) {
+      r += "\n\n### СИСТЕМНІ ІНСТРУКЦІЇ:\n";
+      for (var e in selected) {
+        r += "- ${e.payload}\n";
+      }
+    }
+    setState(() => _finalRes = r);
+  }
+
+  void _showEnhanceMenu() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF0A152F),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModalState) {
+          return Container(
+            padding: const EdgeInsets.only(top: 20, left: 16, right: 16, bottom: 40),
+            height: MediaQuery.of(context).size.height * 0.75,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('ТАКТИЧНЕ ПІДСИЛЕННЯ (PROMPT ENGINEERING)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFFFFD700))),
+                const SizedBox(height: 10),
+                const Text('Оберіть техніки ін\'єкції контексту. Вони будуть безпечно додані в кінець вашого промпту.', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                const SizedBox(height: 10),
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: _enhancers.length,
+                    itemBuilder: (ctx, i) {
+                      final e = _enhancers[i];
+                      return Card(
+                        color: Colors.white.withOpacity(0.05),
+                        margin: const EdgeInsets.only(bottom: 10),
+                        child: CheckboxListTile(
+                          activeColor: const Color(0xFF0057B7),
+                          checkColor: Colors.white,
+                          title: Text(e.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                          subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Text(e.desc, style: const TextStyle(fontSize: 12)),
+                            const SizedBox(height: 4),
+                            Text('КРАЩЕ ДЛЯ: ${e.bestWith}', style: const TextStyle(fontSize: 10, color: Colors.greenAccent)),
+                            Text('УВАГА: ${e.warning}', style: const TextStyle(fontSize: 10, color: Colors.orangeAccent)),
+                          ]),
+                          value: e.isSelected,
+                          onChanged: (val) {
+                            setModalState(() => e.isSelected = val!);
+                            _updateFinalRes();
+                          },
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0057B7), minimumSize: const Size(double.infinity, 50)),
+                  onPressed: () {
+                    widget.onLog("SYS: Застосовано підсилення промпту");
+                    Navigator.pop(ctx);
+                  }, 
+                  child: const Text('АПЛАЙ (ЗАСТОСУВАТИ)', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))
+                )
+              ],
+            ),
+          );
+        }
+      ),
+    );
   }
   
   @override
@@ -809,43 +936,55 @@ class _GenScreenState extends State<GenScreen> {
     body: Padding(
       padding: const EdgeInsets.all(16),
       child: Column(children: [
-        ..._ctrls.keys.map((k) => Padding(
-          padding: const EdgeInsets.only(bottom: 8.0),
-          child: TextField(controller: _ctrls[k], decoration: InputDecoration(labelText: k)),
-        )),
-        const SizedBox(height: 10),
-        ElevatedButton(
-          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0057B7), minimumSize: const Size(double.infinity, 50)),
-          onPressed: () {
-            String t = widget.p.content;
-            _ctrls.forEach((k,v) => t = t.replaceAll('{$k}', v.text.isEmpty ? '{$k}' : v.text));
-            setState(() => _res = t);
-            widget.onLog("Згенеровано промпт: ${widget.p.title}");
-            FocusScope.of(context).unfocus();
-          },
-          child: const Text('КОМПІЛЮВАТИ', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))
-        ),
-        const SizedBox(height: 10),
-        Expanded(child: Container(
-          width: double.infinity, padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(8)),
-          child: SingleChildScrollView(child: SelectableText(_res, style: const TextStyle(fontFamily: 'monospace')))
-        )),
-        const SizedBox(height: 10),
-        Row(children: [
-          Expanded(child: ElevatedButton(
-            onPressed: () {
-              Clipboard.setData(ClipboardData(text: _res));
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Скопійовано')));
-            }, child: const Text('COPY')
+        if (!_isCompiled) ...[
+          ..._ctrls.keys.map((k) => Padding(
+            padding: const EdgeInsets.only(bottom: 8.0),
+            child: TextField(controller: _ctrls[k], decoration: InputDecoration(labelText: k)),
           )),
-          const SizedBox(width: 10),
-          Expanded(child: ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFFFD700)),
-            onPressed: () => Share.share(_res),
-            child: const Text('SHARE', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold))
-          ))
-        ])
+          const SizedBox(height: 10),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0057B7), minimumSize: const Size(double.infinity, 50)),
+            onPressed: _compileBase,
+            child: const Text('КОМПІЛЮВАТИ', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))
+          ),
+        ] else ...[
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0A152F), side: const BorderSide(color: Color(0xFFFFD700)), minimumSize: const Size(double.infinity, 50)),
+            onPressed: _showEnhanceMenu,
+            icon: const Icon(Icons.flash_on, color: Color(0xFFFFD700)),
+            label: const Text('ТАКТИЧНЕ ПІДСИЛЕННЯ ПРОМПТУ', style: TextStyle(color: Color(0xFFFFD700), fontWeight: FontWeight.bold))
+          ),
+          const SizedBox(height: 10),
+          Expanded(child: Container(
+            width: double.infinity, padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(8), border: BorderSide(color: _enhancers.any((e) => e.isSelected) ? const Color(0xFF0057B7) : Colors.transparent)),
+            child: SingleChildScrollView(child: SelectableText(_finalRes.isEmpty ? _baseCompiled : _finalRes, style: const TextStyle(fontFamily: 'monospace')))
+          )),
+          const SizedBox(height: 10),
+          Row(children: [
+            Expanded(child: ElevatedButton(
+              onPressed: () {
+                setState(() {
+                  _isCompiled = false;
+                  for (var e in _enhancers) { e.isSelected = false; }
+                });
+              }, child: const Text('РЕСЕТ')
+            )),
+            const SizedBox(width: 10),
+            Expanded(child: ElevatedButton(
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: _finalRes));
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Скопійовано')));
+              }, child: const Text('COPY')
+            )),
+            const SizedBox(width: 10),
+            Expanded(child: ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFFFD700)),
+              onPressed: () => Share.share(_finalRes),
+              child: const Text('SHARE', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold))
+            ))
+          ])
+        ]
       ])
     )
   );
