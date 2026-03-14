@@ -18,12 +18,13 @@ void main() {
   runApp(const PromptApp());
 }
 
-// --- МОДЕЛІ ДАНИХ ---
+// --- МОДЕЛІ ДАНИХ (Повернуто isFavorite) ---
 class Prompt {
   String id, title, content, category;
-  Prompt({required this.id, required this.title, required this.content, required this.category});
-  Map<String, dynamic> toJson() => {'id': id, 'title': title, 'content': content, 'category': category};
-  factory Prompt.fromJson(Map<String, dynamic> json) => Prompt(id: json['id'], title: json['title'], content: json['content'], category: json['category']);
+  bool isFavorite;
+  Prompt({required this.id, required this.title, required this.content, required this.category, this.isFavorite = false});
+  Map<String, dynamic> toJson() => {'id': id, 'title': title, 'content': content, 'category': category, 'isFavorite': isFavorite};
+  factory Prompt.fromJson(Map<String, dynamic> json) => Prompt(id: json['id'], title: json['title'], content: json['content'], category: json['category'], isFavorite: json['isFavorite'] ?? false);
 }
 
 class PDFDoc {
@@ -33,7 +34,6 @@ class PDFDoc {
   factory PDFDoc.fromJson(Map<String, dynamic> json) => PDFDoc(id: json['id'], name: json['name'], path: json['path']);
 }
 
-// НОВА МОДЕЛЬ: Підсилення Промпту
 class PromptEnhancer {
   String name, desc, bestWith, warning, payload;
   bool isSelected;
@@ -132,7 +132,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       if (dStr != null) docs = (json.decode(dStr) as List).map((i) => PDFDoc.fromJson(i)).toList();
       if (logs != null) auditLogs = logs;
       if (prompts.isEmpty) {
-        prompts = [Prompt(id: '1', title: 'Пошук ФО', category: 'ФО', content: 'Аналіз: {ПІБ}')];
+        prompts = [Prompt(id: '1', title: 'Пошук ФО', category: 'ФО', content: 'Аналіз: {ПІБ}', isFavorite: true)];
         _logAction("Ініціалізація бази даних");
       }
     });
@@ -302,16 +302,47 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
         children: categories.map((cat) {
           if (cat == 'ІНСТРУМЕНТИ') return ToolsMenuScreen(onLog: _logAction);
           if (cat == 'ДОКУМЕНТИ') return _buildDocs();
+          
+          // ВІДНОВЛЕНО: Сортування та Drag & Drop
           final items = prompts.where((p) => p.category == cat).toList();
-          return ListView.builder(itemCount: items.length, itemBuilder: (ctx, i) => Card(
-            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6), color: Colors.white.withOpacity(0.05),
-            child: ListTile(
-              title: Text(items[i].title, style: const TextStyle(fontWeight: FontWeight.bold)), 
-              subtitle: Text(items[i].content, maxLines: 1, overflow: TextOverflow.ellipsis), 
-              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => GenScreen(p: items[i], onLog: _logAction))),
-              onLongPress: () => _addOrEditPrompt(p: items[i]),
-            ),
-          ));
+          items.sort((a, b) => (b.isFavorite ? 1 : 0).compareTo(a.isFavorite ? 1 : 0));
+          
+          return ReorderableListView.builder(
+            padding: const EdgeInsets.only(top: 10, bottom: 90),
+            itemCount: items.length,
+            onReorder: (oldIdx, newIdx) {
+              setState(() {
+                if (newIdx > oldIdx) newIdx -= 1;
+                final item = items.removeAt(oldIdx);
+                items.insert(newIdx, item);
+                prompts.removeWhere((p) => p.category == cat);
+                prompts.addAll(items);
+              });
+              _save();
+            },
+            itemBuilder: (ctx, i) {
+              final p = items[i];
+              return Card(
+                key: ValueKey(p.id),
+                margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                color: Colors.white.withOpacity(0.05),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  side: BorderSide(color: p.isFavorite ? uaYellow.withOpacity(0.5) : Colors.transparent)
+                ),
+                child: ListTile(
+                  leading: IconButton(
+                    icon: Icon(p.isFavorite ? Icons.star : Icons.star_border, color: p.isFavorite ? uaYellow : Colors.white24),
+                    onPressed: () { setState(() => p.isFavorite = !p.isFavorite); _save(); }
+                  ),
+                  title: Text(p.title, style: const TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: Text(p.content, maxLines: 1, overflow: TextOverflow.ellipsis),
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => GenScreen(p: p, onLog: _logAction))),
+                  onLongPress: () => _addOrEditPrompt(p: p), // Довгий тап для редагування все ще працює
+                ),
+              );
+            }
+          );
         }).toList(),
       ),
       floatingActionButton: _tabController.index == 4 ? null : FloatingActionButton(
@@ -786,7 +817,7 @@ class _ExifScreenState extends State<ExifScreen> {
   }
 }
 
-// --- GEN SCREEN З ТАКТИЧНИМ ПІДСИЛЕННЯМ (НОВЕ) ---
+// --- GEN SCREEN З ТАКТИЧНИМ ПІДСИЛЕННЯМ (ВИПРАВЛЕНО BORDER.ALL) ---
 class GenScreen extends StatefulWidget {
   final Prompt p;
   final Function(String) onLog;
@@ -957,7 +988,8 @@ class _GenScreenState extends State<GenScreen> {
           const SizedBox(height: 10),
           Expanded(child: Container(
             width: double.infinity, padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(8), border: BorderSide(color: _enhancers.any((e) => e.isSelected) ? const Color(0xFF0057B7) : Colors.transparent)),
+            // ТУТ ВИПРАВЛЕНО: Border.all замість BorderSide
+            decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(8), border: Border.all(color: _enhancers.any((e) => e.isSelected) ? const Color(0xFF0057B7) : Colors.transparent)),
             child: SingleChildScrollView(child: SelectableText(_finalRes.isEmpty ? _baseCompiled : _finalRes, style: const TextStyle(fontFamily: 'monospace')))
           )),
           const SizedBox(height: 10),
