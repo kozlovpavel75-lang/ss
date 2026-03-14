@@ -148,6 +148,59 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     ));
   }
   
+  // ВІДНОВЛЕНО: Журнал аудиту
+  void _showAuditLog() {
+    showDialog(context: context, builder: (ctx) => AlertDialog(
+      backgroundColor: const Color(0xFF040E22),
+      shape: RoundedRectangleBorder(side: BorderSide(color: uaBlue)),
+      title: const Row(children: [Icon(Icons.terminal, color: Colors.white54), SizedBox(width: 10), Text('AUDIT_LOG', style: TextStyle(fontFamily: 'monospace'))]),
+      content: SizedBox(
+        width: double.maxFinite, height: 300,
+        child: auditLogs.isEmpty 
+          ? const Center(child: Text('NO RECORDS')) 
+          : ListView.builder(itemCount: auditLogs.length, itemBuilder: (context, index) => Padding(padding: const EdgeInsets.only(bottom: 8), child: Text(auditLogs[index], style: const TextStyle(color: Colors.greenAccent, fontFamily: 'monospace', fontSize: 11)))),
+      ),
+      actions: [
+        TextButton(onPressed: () { setState(() { auditLogs.clear(); _save(); }); Navigator.pop(ctx); }, child: const Text('CLEAR', style: TextStyle(color: Colors.redAccent))),
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('CLOSE', style: TextStyle(color: Colors.white54))),
+      ],
+    ));
+  }
+
+  // ВІДНОВЛЕНО: Імпорт з TXT
+  void _importFromTxt() async {
+    FilePickerResult? result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['txt']);
+    if (result != null && result.files.single.path != null) {
+      try {
+        String content = await File(result.files.single.path!).readAsString();
+        List<Prompt> imported = [];
+        for (var block in content.split('===')) {
+          if (block.trim().isEmpty) continue;
+          String cat = 'МОНІТОРИНГ', title = '', text = '';
+          bool isText = false;
+          for (var line in block.trim().split('\n')) {
+            String l = line.toLowerCase().trim();
+            if (l.startsWith('категорія:')) {
+              String rawCat = l.replaceFirst('категорія:', '').trim();
+              if (rawCat == 'фо' || rawCat.contains('фіз')) cat = 'ФО';
+              else if (rawCat == 'юо' || rawCat.contains('юр')) cat = 'ЮО';
+              else if (rawCat.contains('гео')) cat = 'ГЕОІНТ';
+            }
+            else if (l.startsWith('назва:')) title = line.replaceFirst(RegExp(r'Назва:', caseSensitive: false), '').trim();
+            else if (l.startsWith('текст:')) { text = line.replaceFirst(RegExp(r'Текст:', caseSensitive: false), '').trim(); isText = true; }
+            else if (isText) text += '\n$line';
+          }
+          if (title.isNotEmpty && text.isNotEmpty) imported.add(Prompt(id: "${DateTime.now().millisecondsSinceEpoch}_${imported.length}", title: title, content: text.trim(), category: cat));
+        }
+        setState(() => prompts.addAll(imported));
+        _logAction("SYS: Імпортовано TXT (${imported.length} записів)");
+        _save();
+      } catch (e) {
+        _logAction("ERR: Помилка імпорту");
+      }
+    }
+  }
+
   void _addOrEditPrompt({Prompt? p}) {
     final tCtrl = TextEditingController(text: p?.title ?? '');
     final cCtrl = TextEditingController(text: p?.content ?? '');
@@ -211,6 +264,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       appBar: AppBar(
         title: const Text('UKR_OSINT', style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 2)),
         actions: [
+          // ВІДНОВЛЕНО: Усі три кнопки
           IconButton(icon: Icon(Icons.analytics, color: uaYellow), onPressed: () {
             _showSysInfo();
             if (++_secretCounter >= 5) {
@@ -218,6 +272,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
               Navigator.push(context, MaterialPageRoute(builder: (_) => const CottonGame()));
             }
           }),
+          IconButton(icon: const Icon(Icons.receipt_long, color: Colors.white70), onPressed: _showAuditLog),
+          IconButton(icon: Icon(Icons.download, color: uaBlue), onPressed: _importFromTxt),
         ],
         bottom: TabBar(controller: _tabController, isScrollable: true, tabs: categories.map((c) => Tab(text: c)).toList()),
       ),
@@ -460,7 +516,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
   );
 }
 
-// --- ВИПРАВЛЕНИЙ EXIF SCREEN ---
+// --- EXIF SCREEN ---
 class ExifScreen extends StatefulWidget {
   final Function(String) onLog;
   const ExifScreen({super.key, required this.onLog});
@@ -479,7 +535,7 @@ class _ExifScreenState extends State<ExifScreen> {
     try {
       FilePickerResult? r = await FilePicker.platform.pickFiles(
         type: FileType.image,
-        withData: true, // Критично важливо для Android 13+
+        withData: true, 
       );
 
       if (r != null) {
@@ -542,7 +598,7 @@ class _ExifScreenState extends State<ExifScreen> {
   }
 }
 
-// --- ПРАВИЛЬНИЙ GEN SCREEN ---
+// --- GEN SCREEN ---
 class GenScreen extends StatefulWidget {
   final Prompt p;
   final Function(String) onLog;
