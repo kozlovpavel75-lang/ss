@@ -178,7 +178,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   }
 }
 
-// --- НОВИЙ ОФЛАЙН ГЕНЕРАТОР НІКНЕЙМІВ ---
+// --- ОФЛАЙН ГЕНЕРАТОР НІКНЕЙМІВ ---
 class NicknameGenScreen extends StatefulWidget {
   final Function(String) onLog;
   const NicknameGenScreen({super.key, required this.onLog});
@@ -279,7 +279,15 @@ class _ScannerScreenState extends State<ScannerScreen> {
     setState(() => _r = [...ips, ...ems]);
   }
   @override
-  Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('СКАНЕР')), body: Column(children: [TextField(controller: _c, maxLines: 5), ElevatedButton(onPressed: _scan, child: const Text('СКАНУВАТИ')), Expanded(child: ListView(itemCount: _r.length, itemBuilder: (ctx, i) => ListTile(title: Text(_r[i]))))]));
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('СКАНЕР')), 
+    body: Column(children: [
+      TextField(controller: _c, maxLines: 5), 
+      ElevatedButton(onPressed: _scan, child: const Text('СКАНУВАТИ')), 
+      // ТУТ ВИПРАВЛЕНО: Додано .builder
+      Expanded(child: ListView.builder(itemCount: _r.length, itemBuilder: (ctx, i) => ListTile(title: Text(_r[i]))))
+    ])
+  );
 }
 
 class PDFViewerScreen extends StatelessWidget {
