@@ -10,7 +10,7 @@ dependencies:
   flutter:
     sdk: flutter
   
-  # Збереження даних (промпти, налаштування, сейф)
+  # Збереження даних
   shared_preferences: ^2.3.3
   
   # Робота з файлами (TXT, PDF, DOCX)
@@ -26,26 +26,26 @@ dependencies:
   # Аналіз метаданих зображень
   exif: ^3.3.0
   
-  # Робота з архівами (необхідно для читання структури .docx)
+  # Робота з архівами (читання .docx)
   archive: ^4.0.9
   
-  # Форматування дат та локалізація
+  # Форматування дат
   intl: ^0.19.0
   
-  # Керування дозволами (пам'ять, камера)
+  # Керування дозволами
   permission_handler: ^11.3.1
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   
-  # Генератор іконок додатку
+  # Генератор іконок
   flutter_launcher_icons: ^0.14.4
 
-# Конфігурація іконки додатку
+# Конфігурація іконки (ШЛЯХ ВИПРАВЛЕНО НА КОРІНЬ)
 flutter_launcher_icons:
   android: "launcher_icon"
-  image_path: "assets/icon.png" # Переконайтеся, що файл icon.png лежить у папці assets
+  image_path: "icon.png" 
   min_sdk_size: 21
 
 flutter:
