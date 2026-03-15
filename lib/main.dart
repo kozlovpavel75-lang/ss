@@ -452,29 +452,71 @@ class _TimeScreenState extends State<TimeScreen> {
   void _s() async { final p = await SharedPreferences.getInstance(); p.setString('tl', json.encode(_e)); }
   void _a() {
     final dC = TextEditingController(text: "${DateTime.now().day.toString().padLeft(2,'0')}.${DateTime.now().month.toString().padLeft(2,'0')}.${DateTime.now().year}"); final tC = TextEditingController();
-    showDialog(context: context, builder: (c) => AlertDialog(backgroundColor: const Color(0xFF0A152F), title: const Text('НОВА ПОДІЯ'), content: Column(mainAxisSize: MainAxisSize.min, children: [TextField(controller: dC, decoration: const InputDecoration(labelText: 'Дата')), const SizedBox(height: 10), TextField(controller: tC, maxLines: 3, decoration: const InputDecoration(labelText: 'Опис події'))]), actions: [TextButton(onPressed: () => Navigator.pop(c), child: const Text('СКАСУВАТИ')), ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0057B7)), onPressed: () { setState(() => _e.add({'d': dC.text, 't': tC.text})); _s(); Navigator.pop(c); widget.onLog("Таймлайн: додано подію"); }, child: const Text('ДОДАТИ', style: TextStyle(color: Colors.white)))]));
+    showDialog(context: context, builder: (c) => AlertDialog(backgroundColor: const Color(0xFF0A152F), title: const Text('НОВА ПОДІЯ', style: TextStyle(color: Colors.white)), content: Column(mainAxisSize: MainAxisSize.min, children: [TextField(controller: dC, decoration: const InputDecoration(labelText: 'Дата')), const SizedBox(height: 10), TextField(controller: tC, maxLines: 3, decoration: const InputDecoration(labelText: 'Опис події'))]), actions: [TextButton(onPressed: () => Navigator.pop(c), child: const Text('СКАСУВАТИ', style: TextStyle(color: Colors.white))), ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0057B7)), onPressed: () { setState(() => _e.add({'d': dC.text, 't': tC.text})); _s(); Navigator.pop(c); widget.onLog("Таймлайн: додано подію"); }, child: const Text('ДОДАТИ', style: TextStyle(color: Colors.white)))]));
   }
   @override Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('ХРОНОЛОГІЯ')), body: _e.isEmpty ? const Center(child: Text('ПОДІЙ НЕМАЄ', style: TextStyle(color: Colors.white24))) : ListView.builder(itemCount: _e.length, itemBuilder: (c, i) => Card(color: Colors.white.withOpacity(0.05), margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6), child: ListTile(leading: const Icon(Icons.circle, size: 12, color: Colors.blueAccent), title: Text(_e[i]['d']!, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blueAccent)), subtitle: Text(_e[i]['t']!), trailing: IconButton(icon: const Icon(Icons.delete, size: 16, color: Colors.red), onPressed: () { setState(() => _e.removeAt(i)); _s(); })))), floatingActionButton: FloatingActionButton(backgroundColor: const Color(0xFF0057B7), onPressed: _a, child: const Icon(Icons.add, color: Colors.white)));
 }
 
-// --- СЕЙФ З ПАРОЛЕМ (ВИПРАВЛЕНО) ---
+// --- СЕЙФ З ПАРОЛЕМ ---
 class VaultScreen extends StatefulWidget {
   final Function(String) onLog; const VaultScreen({super.key, required this.onLog});
   @override State<VaultScreen> createState() => _VaultScreenState();
 }
 class _VaultScreenState extends State<VaultScreen> {
-  bool _unlocked = false; final _mp = TextEditingController();
+  bool _unlocked = false; 
+  bool _isFirstLaunch = true;
+  String _savedMp = "";
+  final _mp = TextEditingController();
   List<Map<String, String>> _v = [];
+  
   @override void initState() { super.initState(); _l(); }
-  void _l() async { final p = await SharedPreferences.getInstance(); final d = p.getString('vt'); if (d != null) setState(() => _v = List<Map<String, String>>.from(json.decode(d).map((x) => Map<String, String>.from(x)))); }
+  
+  void _l() async { 
+    final p = await SharedPreferences.getInstance(); 
+    final d = p.getString('vt'); 
+    final savedMp = p.getString('master_pass');
+    
+    if (savedMp != null && savedMp.isNotEmpty) {
+      _isFirstLaunch = false;
+      _savedMp = savedMp;
+    }
+    if (d != null) setState(() => _v = List<Map<String, String>>.from(json.decode(d).map((x) => Map<String, String>.from(x)))); 
+    setState(() {});
+  }
+  
   void _s() async { final p = await SharedPreferences.getInstance(); p.setString('vt', json.encode(_v)); }
+  
+  void _setPass() async {
+    if (_mp.text.length < 4) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Пароль має бути мінімум 4 символи!'), backgroundColor: Colors.red));
+      return;
+    }
+    final p = await SharedPreferences.getInstance();
+    p.setString('master_pass', _mp.text);
+    setState(() { _savedMp = _mp.text; _isFirstLaunch = false; _unlocked = true; });
+    widget.onLog("Сейф: встановлено майстер-пароль");
+  }
+
+  void _checkPass() {
+    if (_mp.text == _savedMp) {
+      setState(() => _unlocked = true); 
+      widget.onLog("Сейф: успішний вхід"); 
+    } else { 
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('НЕВІРНИЙ ПАРОЛЬ!'), backgroundColor: Colors.red)); 
+    }
+  }
+
   void _a() {
     final rC = TextEditingController(), lC = TextEditingController(), pC = TextEditingController();
-    showDialog(context: context, builder: (c) => AlertDialog(backgroundColor: const Color(0xFF0A152F), title: const Text('НОВИЙ ЗАПИС'), content: Column(mainAxisSize: MainAxisSize.min, children: [TextField(controller: rC, decoration: const InputDecoration(labelText: 'Ресурс (Сайт/Додаток)')), const SizedBox(height: 10), TextField(controller: lC, decoration: const InputDecoration(labelText: 'Логін / Email / Phone')), const SizedBox(height: 10), TextField(controller: pC, decoration: const InputDecoration(labelText: 'Пароль'))]), actions: [TextButton(onPressed: () => Navigator.pop(c), child: const Text('СКАСУВАТИ')), ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0057B7)), onPressed: () { setState(() => _v.add({'r': rC.text, 'l': lC.text, 'p': pC.text})); _s(); Navigator.pop(c); widget.onLog("Сейф: додано запис"); }, child: const Text('ЗБЕРЕГТИ', style: TextStyle(color: Colors.white)))]));
+    showDialog(context: context, builder: (c) => AlertDialog(backgroundColor: isMatrixMode.value ? Colors.black87 : const Color(0xFF0A152F), title: const Text('НОВИЙ ЗАПИС', style: TextStyle(color: Colors.white)), content: Column(mainAxisSize: MainAxisSize.min, children: [TextField(controller: rC, decoration: const InputDecoration(labelText: 'Ресурс (Сайт/Додаток)')), const SizedBox(height: 10), TextField(controller: lC, decoration: const InputDecoration(labelText: 'Логін / Email / Phone')), const SizedBox(height: 10), TextField(controller: pC, decoration: const InputDecoration(labelText: 'Пароль'))]), actions: [TextButton(onPressed: () => Navigator.pop(c), child: const Text('СКАСУВАТИ', style: TextStyle(color: Colors.white))), ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0057B7)), onPressed: () { setState(() => _v.add({'r': rC.text, 'l': lC.text, 'p': pC.text})); _s(); Navigator.pop(c); widget.onLog("Сейф: додано запис"); }, child: const Text('ЗБЕРЕГТИ', style: TextStyle(color: Colors.white)))]));
   }
+  
   @override Widget build(BuildContext context) {
+    if (_isFirstLaunch) {
+      return Scaffold(appBar: AppBar(title: const Text('СЕЙФ [НАЛАШТУВАННЯ]')), body: Center(child: Padding(padding: const EdgeInsets.all(32), child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [ const Icon(Icons.security, size: 64, color: Colors.blueAccent), const SizedBox(height: 20), const Text('Створіть свій майстер-пароль. Він не підлягає відновленню!', textAlign: TextAlign.center, style: TextStyle(color: Colors.redAccent)), const SizedBox(height: 20), TextField(controller: _mp, obscureText: true, decoration: const InputDecoration(labelText: 'ПРИДУМАЙТЕ ПАРОЛЬ')), const SizedBox(height: 20), ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0057B7)), onPressed: _setPass, child: const Text('СТВОРИТИ СЕЙФ', style: TextStyle(color: Colors.white))) ]))));
+    }
     if (!_unlocked) {
-      return Scaffold(appBar: AppBar(title: const Text('СЕЙФ [ЗАБЛОКОВАНО]')), body: Center(child: Padding(padding: const EdgeInsets.all(32), child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [ const Icon(Icons.lock, size: 64, color: Colors.yellow), const SizedBox(height: 20), TextField(controller: _mp, obscureText: true, decoration: const InputDecoration(labelText: 'МАЙСТЕР-ПАРОЛЬ'), onSubmitted: (val) { if (val == 'osint2026') { setState(() => _unlocked = true); widget.onLog("Сейф: успішний вхід"); } else { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('НЕВІРНИЙ ПАРОЛЬ!'), backgroundColor: Colors.red)); } }), const SizedBox(height: 20), ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0057B7)), onPressed: () { if (_mp.text == 'osint2026') { setState(() => _unlocked = true); widget.onLog("Сейф: успішний вхід"); } else { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('НЕВІРНИЙ ПАРОЛЬ!'), backgroundColor: Colors.red)); } }, child: const Text('ВІДЧИНИТИ', style: TextStyle(color: Colors.white))) ]))));
+      return Scaffold(appBar: AppBar(title: const Text('СЕЙФ [ЗАБЛОКОВАНО]')), body: Center(child: Padding(padding: const EdgeInsets.all(32), child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [ const Icon(Icons.lock, size: 64, color: Colors.yellow), const SizedBox(height: 20), TextField(controller: _mp, obscureText: true, decoration: const InputDecoration(labelText: 'МАЙСТЕР-ПАРОЛЬ'), onSubmitted: (val) => _checkPass()), const SizedBox(height: 20), ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0057B7)), onPressed: _checkPass, child: const Text('ВІДЧИНИТИ', style: TextStyle(color: Colors.white))) ]))));
     }
     return Scaffold(appBar: AppBar(title: const Text('СЕЙФ [ВІДКРИТО]'), actions: [IconButton(icon: const Icon(Icons.lock_open, color: Colors.red), onPressed: () => setState(() { _unlocked = false; _mp.clear(); }))]), body: _v.isEmpty ? const Center(child: Text('СЕЙФ ПУСТИЙ', style: TextStyle(color: Colors.white24))) : ListView.builder(itemCount: _v.length, itemBuilder: (c, i) => Card(color: Colors.white.withOpacity(0.05), margin: const EdgeInsets.all(8), child: ListTile(leading: const Icon(Icons.security, color: Colors.yellow), title: Text(_v[i]['r']!, style: const TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold)), subtitle: Text("Логін: ${_v[i]['l']!}\nПароль: ${_v[i]['p']!}"), isThreeLine: true, trailing: Column(mainAxisAlignment: MainAxisAlignment.center, children: [IconButton(icon: const Icon(Icons.copy, size: 20, color: Colors.white), padding: EdgeInsets.zero, constraints: const BoxConstraints(), onPressed: () { Clipboard.setData(ClipboardData(text: _v[i]['p']!)); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Пароль скопійовано'))); }), const SizedBox(height: 8), IconButton(icon: const Icon(Icons.delete, size: 20, color: Colors.red), padding: EdgeInsets.zero, constraints: const BoxConstraints(), onPressed: () { setState(() => _v.removeAt(i)); _s(); })])))), floatingActionButton: FloatingActionButton(backgroundColor: const Color(0xFF0057B7), onPressed: _a, child: const Icon(Icons.add, color: Colors.white)));
   }
@@ -500,7 +542,6 @@ class _GenScreenState extends State<GenScreen> {
     super.initState(); 
     final r = RegExp(r'\{([^}]+)\}'); 
     for (var m in r.allMatches(widget.p.content)) _c[m.group(1)!] = TextEditingController(); 
-    // Якщо змінних немає, компілюємо текст одразу
     if (_c.isEmpty) _compF();
   }
   
@@ -539,9 +580,11 @@ class _GenScreenState extends State<GenScreen> {
       }), const SizedBox(height: 10),
       Expanded(child: Container(width: double.infinity, padding: const EdgeInsets.all(12), color: Colors.black, child: SingleChildScrollView(child: RichText(text: TextSpan(children: _gV()))))), const SizedBox(height: 10),
       Row(children: [
-        if (_c.isNotEmpty) Expanded(child: ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: Colors.white10), onPressed: () => setState(() => _comp = false), child: const Text('РЕСЕТ', style: TextStyle(color: Colors.white)))), 
+        if (_c.isNotEmpty) Expanded(child: ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: Colors.white10), onPressed: () => setState(() => _comp = false), child: const Icon(Icons.refresh, color: Colors.white))), 
         if (_c.isNotEmpty) const SizedBox(width: 10), 
-        Expanded(child: ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0057B7)), onPressed: () { Clipboard.setData(ClipboardData(text: _s.map((x) => x.text).join())); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Текст скопійовано!'))); }, child: const Text('СКОПІЮВАТИ', style: TextStyle(color: Colors.white))))
+        Expanded(flex: 2, child: ElevatedButton.icon(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0057B7)), icon: const Icon(Icons.copy, size: 18, color: Colors.white), onPressed: () { Clipboard.setData(ClipboardData(text: _s.map((x) => x.text).join())); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Текст скопійовано!'))); }, label: const Text('COPY', style: TextStyle(color: Colors.white)))),
+        const SizedBox(width: 10),
+        Expanded(flex: 2, child: ElevatedButton.icon(style: ElevatedButton.styleFrom(backgroundColor: Colors.green.shade700), icon: const Icon(Icons.send, size: 18, color: Colors.white), onPressed: () { final text = _s.map((x) => x.text).join(); Share.share(text); widget.onLog("Промпт: відправлено в LLM"); }, label: const Text('В LLM', style: TextStyle(color: Colors.white)))),
       ]),
     ]
   ])));
