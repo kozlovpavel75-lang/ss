@@ -40,11 +40,54 @@ class PromptEnhancer {
   PromptEnhancer({required this.name, required this.desc, required this.pros, required this.cons, required this.rec, required this.payload, this.isSelected = false});
 }
 
-// --- ВІЗУАЛ ---
-class TopoGridPainter extends CustomPainter {
-  final bool isGreen; TopoGridPainter(this.isGreen);
+// --- ВІЗУАЛ: АНІМАЦІЯ МАТРИЦІ ТА СІТКА ---
+class MatrixEffect extends StatefulWidget {
+  const MatrixEffect({super.key});
+  @override State<MatrixEffect> createState() => _MatrixEffectState();
+}
+class _MatrixEffectState extends State<MatrixEffect> with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+  final List<double> _y = List.generate(40, (i) => math.Random().nextDouble() * -500);
+  final List<int> _s = List.generate(40, (i) => 3 + math.Random().nextInt(5));
+  final String _chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ!@#\$%^&*";
+
+  @override void initState() {
+    super.initState();
+    _ctrl = AnimationController(vsync: this, duration: const Duration(seconds: 10))..repeat();
+  }
+  @override void dispose() { _ctrl.dispose(); super.dispose(); }
+
+  @override Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _ctrl,
+      builder: (context, child) => CustomPaint(painter: MatrixPainter(_y, _s, _chars), child: Container()),
+    );
+  }
+}
+
+class MatrixPainter extends CustomPainter {
+  final List<double> yPos; final List<int> speeds; final String chars;
+  MatrixPainter(this.yPos, this.speeds, this.chars);
+
   @override void paint(Canvas canvas, Size size) {
-    final paint = Paint()..color = isGreen ? Colors.green.withOpacity(0.05) : const Color(0xFF0057B7).withOpacity(0.03)..strokeWidth = 1.0;
+    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), Paint()..color = Colors.black);
+    for (int i = 0; i < yPos.length; i++) {
+      double x = i * 20.0; if (x > size.width) break;
+      yPos[i] += speeds[i];
+      if (yPos[i] > size.height) yPos[i] = math.Random().nextDouble() * -200;
+      for (int j = 0; j < 12; j++) {
+        final char = chars[math.Random().nextInt(chars.length)];
+        final tp = TextPainter(text: TextSpan(text: char, style: TextStyle(color: j == 0 ? Colors.white : Colors.greenAccent.withOpacity(math.max(0, 1 - (j * 0.1))), fontSize: 16, fontFamily: 'monospace')), textDirection: TextDirection.ltr);
+        tp.layout(); tp.paint(canvas, Offset(x, yPos[i] - (j * 16)));
+      }
+    }
+  }
+  @override bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+}
+
+class TopoGridPainter extends CustomPainter {
+  @override void paint(Canvas canvas, Size size) {
+    final paint = Paint()..color = const Color(0xFF0057B7).withOpacity(0.03)..strokeWidth = 1.0;
     for (double i = 0; i < size.width; i += 40) canvas.drawLine(Offset(i, 0), Offset(i, size.height), paint);
     for (double i = 0; i < size.height; i += 40) canvas.drawLine(Offset(0, i), Offset(size.width, i), paint);
   }
@@ -79,12 +122,12 @@ class PromptApp extends StatelessWidget {
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
           brightness: Brightness.dark,
-          scaffoldBackgroundColor: matrix ? Colors.black : const Color(0xFF040E22),
-          primaryColor: matrix ? Colors.greenAccent : const Color(0xFF0057B7),
+          scaffoldBackgroundColor: const Color(0xFF040E22),
+          primaryColor: const Color(0xFF0057B7),
           fontFamily: 'monospace',
           appBarTheme: const AppBarTheme(backgroundColor: Colors.transparent, elevation: 0),
           inputDecorationTheme: InputDecorationTheme(
-            filled: true, fillColor: matrix ? Colors.black : const Color(0xFF0A152F),
+            filled: true, fillColor: matrix ? Colors.black87 : const Color(0xFF0A152F),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: matrix ? const BorderSide(color: Colors.green) : BorderSide.none),
           ),
         ),
@@ -174,7 +217,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     final tC = TextEditingController(text: p?.title ?? ''); final cC = TextEditingController(text: p?.content ?? '');
     String sC = p?.category ?? 'ФО';
     showDialog(context: context, builder: (ctx) => StatefulBuilder(builder: (c, setS) => AlertDialog(
-      backgroundColor: const Color(0xFF0A152F), title: Text(p == null ? 'НОВИЙ ЗАПИС' : 'РЕДАГУВАННЯ'),
+      backgroundColor: isMatrixMode.value ? Colors.black87 : const Color(0xFF0A152F), title: Text(p == null ? 'НОВИЙ ЗАПИС' : 'РЕДАГУВАННЯ', style: TextStyle(color: isMatrixMode.value ? Colors.greenAccent : Colors.white)),
       content: Column(mainAxisSize: MainAxisSize.min, children: [
         DropdownButtonFormField<String>(dropdownColor: const Color(0xFF0A152F), isExpanded: true, value: sC, items: ['ФО','ЮО','ГЕОІНТ','МОНІТОРИНГ'].map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(), onChanged: (v) => setS(() => sC = v!)),
         const SizedBox(height: 10), TextField(controller: tC, decoration: const InputDecoration(labelText: 'НАЗВА')),
@@ -187,11 +230,11 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           HapticFeedback.heavyImpact(); await Future.delayed(const Duration(milliseconds: 600));
           setState(() => prompts.remove(p)); _save(); 
         }, child: const Text('ВИДАЛИТИ', style: TextStyle(color: Colors.red))),
-        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('СКАСУВАТИ')),
-        ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0057B7)), onPressed: () {
+        TextButton(onPressed: () => Navigator.pop(ctx), child: Text('СКАСУВАТИ', style: TextStyle(color: isMatrixMode.value ? Colors.green : Colors.white))),
+        ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: isMatrixMode.value ? Colors.green.withOpacity(0.2) : const Color(0xFF0057B7)), onPressed: () {
           setState(() { if (p == null) prompts.add(Prompt(id: DateTime.now().toString(), title: tC.text, content: cC.text, category: sC)); else { p.title = tC.text; p.content = cC.text; p.category = sC; } });
           _save(); Navigator.pop(ctx);
-        }, child: const Text('ЗБЕРЕГТИ', style: TextStyle(color: Colors.white)))
+        }, child: Text('ЗБЕРЕГТИ', style: TextStyle(color: isMatrixMode.value ? Colors.greenAccent : Colors.white)))
       ],
     )));
   }
@@ -210,37 +253,37 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       appBar: AppBar(
         title: GestureDetector(onTap: () { if (++_taps >= 7) { isMatrixMode.value = !isMatrixMode.value; _taps = 0; HapticFeedback.vibrate(); } }, child: Text('UKR_OSINT', style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 2, color: isMatrixMode.value ? Colors.greenAccent : Colors.white))),
         actions: [
-          IconButton(icon: const Icon(Icons.analytics, color: Colors.yellow), onPressed: () {
+          IconButton(icon: Icon(Icons.analytics, color: isMatrixMode.value ? Colors.green : Colors.yellow), onPressed: () {
             Map<String, int> s = {'ФО': 0, 'ЮО': 0, 'ГЕОІНТ': 0, 'МОНІТОРИНГ': 0}; int tot = prompts.length;
             for (var p in prompts) if (s.containsKey(p.category)) s[p.category] = s[p.category]! + 1;
-            showDialog(context: context, builder: (c) => AlertDialog(backgroundColor: const Color(0xFF040E22), title: const Text('СТАТИСТИКА БАЗИ'), content: Column(mainAxisSize: MainAxisSize.min, children: s.entries.map((e) => Column(children: [Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(e.key), Text('${e.value}')]), const SizedBox(height: 4), LinearProgressIndicator(value: tot == 0 ? 0 : e.value / tot, color: Colors.blue), const SizedBox(height: 8)])).toList())));
+            showDialog(context: context, builder: (c) => AlertDialog(backgroundColor: isMatrixMode.value ? Colors.black87 : const Color(0xFF040E22), title: Text('СТАТИСТИКА БАЗИ', style: TextStyle(color: isMatrixMode.value ? Colors.greenAccent : Colors.white)), content: Column(mainAxisSize: MainAxisSize.min, children: s.entries.map((e) => Column(children: [Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(e.key), Text('${e.value}')]), const SizedBox(height: 4), LinearProgressIndicator(value: tot == 0 ? 0 : e.value / tot, color: isMatrixMode.value ? Colors.green : Colors.blue, backgroundColor: Colors.white10), const SizedBox(height: 8)])).toList())));
           }),
-          IconButton(icon: const Icon(Icons.receipt_long), onPressed: () => showDialog(context: context, builder: (c) => AlertDialog(backgroundColor: Colors.black, title: const Text('ЖУРНАЛ ДІЙ'), content: SizedBox(width: double.maxFinite, height: 300, child: logs.isEmpty ? const Center(child: Text('НЕМАЄ ЗАПИСІВ')) : ListView.builder(itemCount: logs.length, itemBuilder: (cc, i) => Text(logs[i], style: const TextStyle(fontSize: 10, color: Colors.greenAccent))))))),
-          IconButton(icon: const Icon(Icons.download, color: Colors.blue), onPressed: _import),
+          IconButton(icon: Icon(Icons.receipt_long, color: isMatrixMode.value ? Colors.green : Colors.white), onPressed: () => showDialog(context: context, builder: (c) => AlertDialog(backgroundColor: Colors.black, title: const Text('ЖУРНАЛ ДІЙ', style: TextStyle(color: Colors.greenAccent)), content: SizedBox(width: double.maxFinite, height: 300, child: logs.isEmpty ? const Center(child: Text('НЕМАЄ ЗАПИСІВ')) : ListView.builder(itemCount: logs.length, itemBuilder: (cc, i) => Text(logs[i], style: const TextStyle(fontSize: 10, color: Colors.greenAccent))))))),
+          IconButton(icon: Icon(Icons.download, color: isMatrixMode.value ? Colors.greenAccent : Colors.blue), onPressed: _import),
         ],
-        bottom: TabBar(controller: _tc, isScrollable: true, tabs: cats.map((c) => Tab(text: c)).toList()),
+        bottom: TabBar(controller: _tc, isScrollable: true, labelColor: isMatrixMode.value ? Colors.greenAccent : Colors.white, indicatorColor: isMatrixMode.value ? Colors.greenAccent : Colors.blue, tabs: cats.map((c) => Tab(text: c)).toList()),
       ),
       body: Stack(children: [
-        CustomPaint(painter: TopoGridPainter(isMatrixMode.value), child: Container()),
+        if (isMatrixMode.value) const MatrixEffect() else CustomPaint(painter: TopoGridPainter(), child: Container()),
         TabBarView(controller: _tc, children: cats.map((cat) {
           if (cat == 'ІНСТРУМЕНТИ') return ToolsMenu(onLog: _log);
-          if (cat == 'ДОКУМЕНТИ') return docs.isEmpty ? const Center(child: Text('[ ФАЙЛІВ НЕМАЄ ]', style: TextStyle(color: Colors.white24))) : ListView.builder(itemCount: docs.length, itemBuilder: (c, i) => Card(margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6), color: Colors.white.withOpacity(0.05), child: ListTile(leading: const Icon(Icons.picture_as_pdf), title: Text(docs[i].name), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PDFViewerScreen(doc: docs[i]))), trailing: IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: () { setState(() => docs.removeAt(i)); _save(); }))));
+          if (cat == 'ДОКУМЕНТИ') return docs.isEmpty ? const Center(child: Text('[ ФАЙЛІВ НЕМАЄ ]', style: TextStyle(color: Colors.white24))) : ListView.builder(itemCount: docs.length, itemBuilder: (c, i) => Card(margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6), color: Colors.white.withOpacity(isMatrixMode.value ? 0.02 : 0.05), child: ListTile(leading: Icon(Icons.picture_as_pdf, color: isMatrixMode.value ? Colors.green : Colors.white), title: Text(docs[i].name, style: TextStyle(color: isMatrixMode.value ? Colors.greenAccent : Colors.white)), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PDFViewerScreen(doc: docs[i]))), trailing: IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: () { setState(() => docs.removeAt(i)); _save(); }))));
           final items = prompts.where((p) => p.category == cat).toList();
           if (items.isEmpty) return const Center(child: Text('[ ПУСТО ]', style: TextStyle(color: Colors.white24)));
           items.sort((a, b) => (b.isFavorite ? 1 : 0).compareTo(a.isFavorite ? 1 : 0));
           return ListView.builder(itemCount: items.length, itemBuilder: (ctx, i) => Card(
-            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6), color: Colors.white.withOpacity(0.05),
+            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6), color: Colors.white.withOpacity(isMatrixMode.value ? 0.02 : 0.05),
             child: ListTile(
-              leading: IconButton(icon: Icon(items[i].isFavorite ? Icons.star : Icons.star_border, color: items[i].isFavorite ? Colors.yellow : Colors.white24), onPressed: () { setState(() => items[i].isFavorite = !items[i].isFavorite); _save(); }),
-              title: Text(items[i].title, style: const TextStyle(fontWeight: FontWeight.bold)),
-              subtitle: Text(items[i].content, maxLines: 1, overflow: TextOverflow.ellipsis),
+              leading: IconButton(icon: Icon(items[i].isFavorite ? Icons.star : Icons.star_border, color: items[i].isFavorite ? (isMatrixMode.value ? Colors.green : Colors.yellow) : Colors.white24), onPressed: () { setState(() => items[i].isFavorite = !items[i].isFavorite); _save(); }),
+              title: Text(items[i].title, style: TextStyle(fontWeight: FontWeight.bold, color: isMatrixMode.value ? Colors.greenAccent : Colors.white)),
+              subtitle: Text(items[i].content, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: isMatrixMode.value ? Colors.green : Colors.grey)),
               onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => GenScreen(p: items[i], onLog: _log))),
               onLongPress: () => _addP(p: items[i]),
             ),
           ));
         }).toList()),
       ]),
-      floatingActionButton: _tc.index == 4 ? null : FloatingActionButton(backgroundColor: const Color(0xFF0057B7), onPressed: () => _tc.index == 5 ? _pickPDF() : _addP(), child: Icon(_tc.index == 5 ? Icons.picture_as_pdf : Icons.add, color: Colors.white)),
+      floatingActionButton: _tc.index == 4 ? null : FloatingActionButton(backgroundColor: isMatrixMode.value ? Colors.green.withOpacity(0.3) : const Color(0xFF0057B7), onPressed: () => _tc.index == 5 ? _pickPDF() : _addP(), child: Icon(_tc.index == 5 ? Icons.picture_as_pdf : Icons.add, color: isMatrixMode.value ? Colors.greenAccent : Colors.white)),
     );
   }
 }
@@ -248,20 +291,20 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
 class ToolsMenu extends StatelessWidget {
   final Function(String) onLog; const ToolsMenu({super.key, required this.onLog});
   @override Widget build(BuildContext context) => ListView(padding: const EdgeInsets.all(12), children: [
-    _t(context, 'DORKS', 'Google Конструктор', Icons.travel_explore, DorksScreen(onLog: onLog)),
+    _t(context, 'DORKS', 'Google Конструктор (Новини, Документи)', Icons.travel_explore, DorksScreen(onLog: onLog)),
     _t(context, 'СКАНЕР', 'Екстракція (IP/Телефон/Email)', Icons.radar, ScannerScreen(onLog: onLog)),
-    _t(context, 'EXIF', 'Аналіз метаданих фото', Icons.image_search, ExifScreen(onLog: onLog)),
+    _t(context, 'EXIF', 'Аналіз метаданих фотографій', Icons.image_search, ExifScreen(onLog: onLog)),
     _t(context, 'ІПН', 'Дешифратор РНОКПП', Icons.fingerprint, IpnScreen(onLog: onLog)),
-    _t(context, 'ФІНАНСИ', 'Перевірка карток (Луна)', Icons.credit_card, FinScreen(onLog: onLog)),
+    _t(context, 'ФІНАНСИ', 'Перевірка карток (Алгоритм Луна)', Icons.credit_card, FinScreen(onLog: onLog)),
     _t(context, 'АВТО', 'Регіони України', Icons.directions_car, AutoScreen(onLog: onLog)),
-    _t(context, 'НІКНЕЙМИ', 'Генератор', Icons.psychology, NickScreen(onLog: onLog)),
+    _t(context, 'НІКНЕЙМИ', 'Генератор варіантів', Icons.psychology, NickScreen(onLog: onLog)),
     _t(context, 'ХРОНОЛОГІЯ', 'Таймлайн подій', Icons.timeline, TimeScreen(onLog: onLog)),
     _t(context, 'СЕЙФ', 'Захищений менеджер паролів', Icons.lock, VaultScreen(onLog: onLog)),
   ]);
   Widget _t(ctx, t, s, i, sc) => Card(color: Colors.white.withOpacity(0.03), child: ListTile(leading: Icon(i, color: Colors.yellow), title: Text(t, style: const TextStyle(fontWeight: FontWeight.bold)), subtitle: Text(s, style: const TextStyle(fontSize: 10)), onTap: () => Navigator.push(ctx, MaterialPageRoute(builder: (_) => sc))));
 }
 
-// --- DORKS ---
+// --- DORKS (НОВІ, ПРИЗЕМЛЕНІ) ---
 class DorksScreen extends StatefulWidget {
   final Function(String) onLog; const DorksScreen({super.key, required this.onLog});
   @override State<DorksScreen> createState() => _DorksScreenState();
@@ -271,15 +314,15 @@ class _DorksScreenState extends State<DorksScreen> {
   void _gen() {
     String s = _t.text.trim(); if (s.isEmpty) return;
     setState(() => _d = [
-      {'t': 'ДОКУМЕНТИ', 'd': 'Пошук документів на сайті', 'q': 'site:$s ext:pdf OR ext:docx OR ext:txt OR ext:csv'},
-      {'t': 'БАЗИ ДАНИХ', 'd': 'Дампи баз даних', 'q': 'site:$s ext:sql OR ext:db OR ext:bak OR ext:dump'},
-      {'t': 'КОНФІГИ', 'd': 'Файли конфігурацій', 'q': 'site:$s ext:env OR ext:conf OR ext:ini OR ext:xml'},
-      {'t': 'КАМЕРИ', 'd': 'Відкриті веб-камери', 'q': 'site:$s inurl:view/view.shtml OR inurl:axis-cgi/jpg'},
-      {'t': 'АДМІН-ПАНЕЛІ', 'd': 'Панелі авторизації', 'q': 'site:$s inurl:admin OR inurl:login OR inurl:wp-admin'},
-      {'t': 'ПАРОЛІ', 'd': 'Логи з паролями', 'q': 'site:$s "password" ext:txt OR ext:log'}
+      {'t': 'ДОКУМЕНТИ', 'd': 'PDF, Word, Excel на сайті', 'q': 'site:$s ext:pdf OR ext:docx OR ext:xlsx OR ext:csv'},
+      {'t': 'НОВИНИ / ЗГАДКИ', 'd': 'Згадки в новинах та пресі', 'q': 'site:$s inurl:news OR intext:"$s"'},
+      {'t': 'ВІДКРИТІ ДИРЕКТОРІЇ', 'd': 'Пошук індексів файлів', 'q': 'site:$s intitle:"index of"'},
+      {'t': 'СОЦМЕРЕЖІ', 'd': 'Зв\'язок домену з соцмережами', 'q': 'site:linkedin.com/in OR site:facebook.com "$s"'},
+      {'t': 'ПІДДОМЕНИ', 'd': 'Пошук тестових та робочих піддоменів', 'q': 'site:*.$s -www'},
+      {'t': 'КОНФІГИ ТА БАЗИ ДАНИХ', 'd': 'Файли налаштувань, SQL дампи', 'q': 'site:$s ext:env OR ext:sql OR ext:db OR ext:log'}
     ]); widget.onLog("Dorks: згенеровано для $s");
   }
-  @override Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('КОНСТРУКТОР DORKS')), body: Column(children: [ Padding(padding: const EdgeInsets.all(16), child: TextField(controller: _t, decoration: const InputDecoration(labelText: 'ЦІЛЬОВИЙ ДОМЕН (напр. example.com)'))), ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0057B7)), onPressed: _gen, child: const Text('ЗГЕНЕРУВАТИ', style: TextStyle(color: Colors.white))), Expanded(child: ListView.builder(itemCount: _d.length, itemBuilder: (c, i) => Card(margin: const EdgeInsets.all(8), color: Colors.white.withOpacity(0.05), child: ListTile(title: Text(_d[i]['t']!, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.greenAccent)), subtitle: Text("${_d[i]['d']!}\n\n${_d[i]['q']!}"), isThreeLine: true, trailing: IconButton(icon: const Icon(Icons.copy), onPressed: () { Clipboard.setData(ClipboardData(text: _d[i]['q']!)); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Скопійовано!'))); } ))))) ]));
+  @override Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('КОНСТРУКТОР DORKS')), body: Column(children: [ Padding(padding: const EdgeInsets.all(16), child: TextField(controller: _t, decoration: const InputDecoration(labelText: 'ЦІЛЬОВИЙ ДОМЕН АБО КЛЮЧОВЕ СЛОВО'))), ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0057B7)), onPressed: _gen, child: const Text('ЗГЕНЕРУВАТИ', style: TextStyle(color: Colors.white))), Expanded(child: ListView.builder(itemCount: _d.length, itemBuilder: (c, i) => Card(margin: const EdgeInsets.all(8), color: Colors.white.withOpacity(0.05), child: ListTile(title: Text(_d[i]['t']!, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.greenAccent)), subtitle: Text("${_d[i]['d']!}\n\n${_d[i]['q']!}"), isThreeLine: true, trailing: IconButton(icon: const Icon(Icons.copy), onPressed: () { Clipboard.setData(ClipboardData(text: _d[i]['q']!)); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Скопійовано!'))); } ))))) ]));
 }
 
 // --- СКАНЕР ---
@@ -316,14 +359,30 @@ class _ScannerScreenState extends State<ScannerScreen> with SingleTickerProvider
   ]));
 }
 
-// --- EXIF ---
+// --- EXIF (БЕЗПЕЧНИЙ) ---
 class ExifScreen extends StatefulWidget {
   final Function(String) onLog; const ExifScreen({super.key, required this.onLog});
   @override State<ExifScreen> createState() => _ExifScreenState();
 }
 class _ExifScreenState extends State<ExifScreen> {
   Map<String, dynamic> _d = {};
-  void _p() async { FilePickerResult? r = await FilePicker.platform.pickFiles(type: FileType.image); if (r != null) { final t = await readExifFromBytes(await File(r.files.single.path!).readAsBytes()); setState(() => _d = t); widget.onLog("EXIF: фото проаналізовано"); } }
+  void _p() async { 
+    try {
+      FilePickerResult? r = await FilePicker.platform.pickFiles(type: FileType.image); 
+      if (r != null) { 
+        final bytes = await File(r.files.single.path!).readAsBytes();
+        final t = await readExifFromBytes(bytes); 
+        if (t.isEmpty) {
+          setState(() => _d = {'Статус': 'Метадані відсутні або очищені (можливо, фото з месенджера)'});
+        } else {
+          setState(() => _d = t); 
+        }
+        widget.onLog("EXIF: фото проаналізовано"); 
+      } 
+    } catch (e) {
+      setState(() => _d = {'Помилка': 'Не вдалося прочитати метадані файлу'});
+    }
+  }
   @override Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('EXIF АНАЛІЗАТОР')), body: Column(children: [ const SizedBox(height: 10), ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0057B7)), onPressed: _p, child: const Text('ОБРАТИ ФОТО', style: TextStyle(color: Colors.white))), const SizedBox(height: 10), Expanded(child: _d.isEmpty ? const Center(child: Text('ЧЕКАЮ НА ФАЙЛ...', style: TextStyle(color: Colors.white24))) : ListView.builder(itemCount: _d.length, itemBuilder: (c, i) => Card(color: Colors.white.withOpacity(0.05), margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), child: ListTile(title: Text(_d.keys.elementAt(i), style: const TextStyle(fontSize: 12)), subtitle: Text(_d.values.elementAt(i).toString(), style: const TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold)))))) ]));
 }
 
@@ -398,7 +457,7 @@ class _TimeScreenState extends State<TimeScreen> {
   @override Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('ХРОНОЛОГІЯ')), body: _e.isEmpty ? const Center(child: Text('ПОДІЙ НЕМАЄ', style: TextStyle(color: Colors.white24))) : ListView.builder(itemCount: _e.length, itemBuilder: (c, i) => Card(color: Colors.white.withOpacity(0.05), margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6), child: ListTile(leading: const Icon(Icons.circle, size: 12, color: Colors.blueAccent), title: Text(_e[i]['d']!, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blueAccent)), subtitle: Text(_e[i]['t']!), trailing: IconButton(icon: const Icon(Icons.delete, size: 16, color: Colors.red), onPressed: () { setState(() => _e.removeAt(i)); _s(); })))), floatingActionButton: FloatingActionButton(backgroundColor: const Color(0xFF0057B7), onPressed: _a, child: const Icon(Icons.add, color: Colors.white)));
 }
 
-// --- СЕЙФ З ПАРОЛЕМ ---
+// --- СЕЙФ З ПАРОЛЕМ (ВИПРАВЛЕНО) ---
 class VaultScreen extends StatefulWidget {
   final Function(String) onLog; const VaultScreen({super.key, required this.onLog});
   @override State<VaultScreen> createState() => _VaultScreenState();
@@ -441,7 +500,7 @@ class _GenScreenState extends State<GenScreen> {
     super.initState(); 
     final r = RegExp(r'\{([^}]+)\}'); 
     for (var m in r.allMatches(widget.p.content)) _c[m.group(1)!] = TextEditingController(); 
-    // Якщо немає змінних, компілюємо відразу
+    // Якщо змінних немає, компілюємо текст одразу
     if (_c.isEmpty) _compF();
   }
   
@@ -474,7 +533,7 @@ class _GenScreenState extends State<GenScreen> {
       ElevatedButton.icon(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0A152F)), icon: const Icon(Icons.flash_on, color: Colors.yellow), label: const Text('ТАКТИЧНЕ ПІДСИЛЕННЯ', style: TextStyle(color: Colors.white)), onPressed: () {
         showModalBottomSheet(context: context, isScrollControlled: true, backgroundColor: const Color(0xFF0A152F), builder: (c) => StatefulBuilder(builder: (cc, sM) => Container(padding: const EdgeInsets.all(16), height: MediaQuery.of(context).size.height * 0.8, child: Column(children: [
           const Text('ПІДСИЛЕННЯ ПРОМПТУ', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.yellow, fontSize: 18)), const SizedBox(height: 10),
-          Expanded(child: ListView.builder(itemCount: _e.length, itemBuilder: (ccc, i) => Card(color: Colors.white.withOpacity(0.05), child: CheckboxListTile(title: Text(_e[i].name, style: const TextStyle(fontWeight: FontWeight.bold)), subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(_e[i].desc, style: const TextStyle(fontSize: 12)), const SizedBox(height: 4), Text("ПЕРЕВАГИ: ${_e[i].pros}", style: const TextStyle(fontSize: 10, color: Colors.greenAccent)), Text("РЕКОМЕНДОВАНО ДЛЯ: ${_e[i].rec}", style: const TextStyle(fontSize: 10, color: Colors.blueAccent))]), isThreeLine: true, value: _e[i].isSelected, onChanged: (v) { sM(() => _e[i].isSelected = v!); if (_comp) _compF(); })))),
+          Expanded(child: ListView.builder(itemCount: _e.length, itemBuilder: (ccc, i) => Card(color: Colors.white.withOpacity(0.05), child: CheckTitle(title: Text(_e[i].name, style: const TextStyle(fontWeight: FontWeight.bold)), subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(_e[i].desc, style: const TextStyle(fontSize: 12)), const SizedBox(height: 4), Text("ПЕРЕВАГИ: ${_e[i].pros}", style: const TextStyle(fontSize: 10, color: Colors.greenAccent)), Text("РЕКОМЕНДОВАНО ДЛЯ: ${_e[i].rec}", style: const TextStyle(fontSize: 10, color: Colors.blueAccent))]), isThreeLine: true, value: _e[i].isSelected, onChanged: (v) { sM(() => _e[i].isSelected = v!); if (_comp) _compF(); })))),
           const SizedBox(height: 10), ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0057B7), minimumSize: const Size(double.infinity, 50)), onPressed: () => Navigator.pop(c), child: const Text('ЗАКРИТИ', style: TextStyle(color: Colors.white)))
         ]))));
       }), const SizedBox(height: 10),
@@ -488,5 +547,7 @@ class _GenScreenState extends State<GenScreen> {
   ])));
   List<TextSpan> _gV() { List<TextSpan> r = []; int c = 0; for (var x in _s) { if (c + x.text!.length <= _l) { r.add(x); c += x.text!.length; } else { r.add(TextSpan(text: x.text!.substring(0, _l - c), style: x.style)); break; } } return r; }
 }
+
+class CheckTitle extends StatelessWidget { final Widget title; final Widget subtitle; final bool value; final bool isThreeLine; final Function(bool?) onChanged; const CheckTitle({super.key, required this.title, required this.subtitle, required this.value, required this.isThreeLine, required this.onChanged}); @override Widget build(BuildContext context) { return CheckboxListTile(title: title, subtitle: subtitle, value: value, onChanged: onChanged, isThreeLine: isThreeLine); } }
 
 class PDFViewerScreen extends StatelessWidget { final PDFDoc doc; const PDFViewerScreen({super.key, required this.doc}); @override Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: Text(doc.name)), body: PDFView(filePath: doc.path)); }
