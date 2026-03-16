@@ -421,13 +421,28 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     );
   }
 
-  TabBar _tabBar() => TabBar(
-    controller: _tc, isScrollable: true,
-    labelColor: isMatrixMode.value ? Colors.greenAccent : AppColors.uaYellow,
-    unselectedLabelColor: AppColors.textSec,
-    indicatorColor: isMatrixMode.value ? Colors.greenAccent : AppColors.uaYellow,
-    tabs: cats.map((c) => Tab(text: c)).toList(),
-  );
+  PreferredSizeWidget _tabBar() {
+    final m = isMatrixMode.value;
+    final bar = TabBar(
+      controller: _tc, isScrollable: true,
+      labelColor: m ? Colors.greenAccent : AppColors.uaYellow,
+      unselectedLabelColor: AppColors.textSec,
+      indicatorColor: m ? Colors.greenAccent : AppColors.uaYellow,
+      tabs: cats.map((c) => Tab(text: c)).toList(),
+    );
+    return PreferredSize(
+      preferredSize: Size.fromHeight(bar.preferredSize.height + 2),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        bar,
+        if (!m) Container(height: 2, decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [AppColors.uaBlue, AppColors.uaBlue, AppColors.uaYellow, AppColors.uaYellow],
+            stops: [0, 0.5, 0.5, 1],
+          ),
+        )),
+      ]),
+    );
+  }
 
   void _showStats() {
     final m = isMatrixMode.value;
@@ -466,25 +481,21 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       extendBodyBehindAppBar: true,
       appBar: _appBar(),
       body: Stack(children: [
-        // Фон
-        if (m) const MatrixEffect() else CustomPaint(painter: _TopoGridPainter(), child: Container()),
-        // Синьо-жовта смужка
-        Positioned(top: 0, left: 0, right: 0, child: SafeArea(bottom: false, child: Column(children: [
-          SizedBox(height: AppBar().preferredSize.height + 48),
+        // Фон (на весь екран)
+        Positioned.fill(child: m ? const MatrixEffect() : CustomPaint(painter: _TopoGridPainter(), child: Container())),
+        // Контент під AppBar
+        SafeArea(child: Column(children: [
+          // Синьо-жовта смужка одразу під TabBar
           Container(height: 2, decoration: const BoxDecoration(gradient: LinearGradient(
             colors: [AppColors.uaBlue, AppColors.uaBlue, AppColors.uaYellow, AppColors.uaYellow],
             stops: [0, 0.5, 0.5, 1],
           ))),
-        ]))),
-        // Контент
-        SafeArea(child: Padding(
-          padding: const EdgeInsets.only(top: 2),
-          child: TabBarView(controller: _tc, children: cats.map((cat) {
+          Expanded(child: TabBarView(controller: _tc, children: cats.map((cat) {
             if (cat == 'ІНСТРУМЕНТИ') return ToolsMenu(onLog: _log);
             if (cat == 'ДОКУМЕНТИ') return _buildDocs();
             return _buildPromptList(cat);
-          }).toList()),
-        )),
+          }).toList())),
+        ])),
       ]),
       floatingActionButton: _tc.index == 4 ? null : FloatingActionButton(
         backgroundColor: m ? Colors.green.withOpacity(0.3) : AppColors.uaBlue,
@@ -1169,19 +1180,29 @@ class ExifScreen extends StatefulWidget {
   @override State<ExifScreen> createState() => _ExifScreenState();
 }
 class _ExifScreenState extends State<ExifScreen> {
-  Map<String, dynamic> _d = {};
+  Map<String, String> _d = {};
+  bool _loading = false;
   void _p() async {
     try {
       FilePickerResult? r = await FilePicker.platform.pickFiles(type: FileType.image);
-      if (r == null) return;
+      if (r == null || r.files.single.path == null) return;
+      if (!mounted) return;
+      setState(() { _loading = true; _d.clear(); });
       final bytes = await File(r.files.single.path!).readAsBytes();
       final t = await readExifFromBytes(bytes);
       if (!mounted) return;
-      setState(() => _d = t.isEmpty ? {'Статус': 'Метадані відсутні або очищені'} : t);
-      widget.onLog("EXIF: проаналізовано ${r.files.single.name}");
+      setState(() {
+        _loading = false;
+        if (t.isEmpty) {
+          _d = {'Статус': 'Метадані відсутні або очищені (можливо, фото з месенджера)'};
+        } else {
+          _d = {for (var e in t.entries) e.key: e.value.toString()};
+        }
+      });
+      widget.onLog("EXIF: проаналізовано ${r.files.single.name} — ${t.length} тегів");
     } catch (e) {
       if (!mounted) return;
-      setState(() => _d = {'Помилка': 'Не вдалося прочитати метадані: $e'});
+      setState(() { _loading = false; _d = {'Помилка': e.toString()}; });
     }
   }
   @override Widget build(BuildContext context) => Scaffold(
@@ -1193,22 +1214,24 @@ class _ExifScreenState extends State<ExifScreen> {
         style: ElevatedButton.styleFrom(backgroundColor: AppColors.uaBlue),
         onPressed: _p,
       )),
-      Expanded(child: _d.isEmpty
-          ? const Center(child: Text('ЧЕКАЮ НА ФАЙЛ...', style: TextStyle(color: Colors.white24)))
-          : ListView.builder(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              itemCount: _d.length,
-              itemBuilder: (c, i) => Card(
-                color: Colors.white.withOpacity(0.03),
-                margin: const EdgeInsets.only(bottom: 4),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: const BorderSide(color: AppColors.border)),
-                child: ListTile(dense: true,
-                  title: Text(_d.keys.elementAt(i), style: const TextStyle(fontSize: 12, color: AppColors.accent)),
-                  subtitle: Text(_d.values.elementAt(i).toString(), style: const TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold)),
-                  onTap: () => Clipboard.setData(ClipboardData(text: '${_d.keys.elementAt(i)}: ${_d.values.elementAt(i)}')),
+      Expanded(child: _loading
+          ? const Center(child: CircularProgressIndicator(color: AppColors.uaYellow))
+          : _d.isEmpty
+              ? const Center(child: Text('ЧЕКАЮ НА ФАЙЛ...', style: TextStyle(color: Colors.white24)))
+              : ListView(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  children: _d.entries.map((e) => Card(
+                    color: Colors.white.withOpacity(0.03),
+                    margin: const EdgeInsets.only(bottom: 4),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: const BorderSide(color: AppColors.border)),
+                    child: ListTile(dense: true,
+                      title: Text(e.key, style: const TextStyle(fontSize: 12, color: AppColors.accent)),
+                      subtitle: Text(e.value, style: const TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold)),
+                      trailing: const Icon(Icons.copy_outlined, size: 14, color: AppColors.textHint),
+                      onTap: () { Clipboard.setData(ClipboardData(text: '${e.key}: ${e.value}')); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Скопійовано!'), backgroundColor: AppColors.uaBlue, duration: Duration(seconds: 1))); },
+                    ),
+                  )).toList(),
                 ),
-              ),
-            ),
       ),
     ]),
   );
@@ -1298,16 +1321,53 @@ class AutoScreen extends StatefulWidget {
 class _AutoScreenState extends State<AutoScreen> {
   final _c = TextEditingController(); String _r = "";
   static const _reg = {'AA':'м. Київ','KA':'м. Київ','TT':'м. Київ','AB':'Вінницька обл.','KB':'Вінницька обл.','AC':'Волинська обл.','AE':'Дніпропетровська обл.','KE':'Дніпропетровська обл.','AH':'Донецька обл.','AM':'Житомирська обл.','AO':'Закарпатська обл.','AP':'Запорізька обл.','AT':'Івано-Франківська обл.','AI':'Київська обл.','BA':'Кіровоградська обл.','BB':'Луганська обл.','BC':'Львівська обл.','HC':'Львівська обл.','BE':'Миколаївська обл.','BH':'Одеська обл.','HH':'Одеська обл.','BI':'Полтавська обл.','BK':'Рівненська обл.','BM':'Сумська обл.','BO':'Тернопільська обл.','AX':'Харківська обл.','KX':'Харківська обл.','BT':'Херсонська обл.','BX':'Хмельницька обл.','CA':'Черкаська обл.','CB':'Чернігівська обл.','CE':'Чернівецька обл.','AK':'АР Крим','CH':'м. Севастополь'};
-  void _check() { String s = _c.text.trim().toUpperCase(); if (s.length < 2) return; setState(() => _r = _reg[s.substring(0, 2)] ?? "Невідомий регіон / Новий формат"); widget.onLog("Авто: пошук регіону"); }
+  // Транслітерація українських літер номерного знаку в латинські коди
+  String _normalize(String s) {
+    const ua2lat = {'А':'A','В':'B','Е':'E','І':'I','К':'K','М':'M','Н':'H','О':'O','Р':'P','С':'C','Т':'T','Х':'X'};
+    return s.split('').map((c) => ua2lat[c] ?? c).join();
+  }
+  void _check() {
+    String raw = _c.text.trim().toUpperCase();
+    String s = _normalize(raw);
+    if (s.length < 2) return;
+    String key = s.substring(0, 2);
+    setState(() => _r = _reg[key] ?? 'Невідомий регіон або новий формат номера');
+    widget.onLog("Авто: пошук регіону для $raw");
+  }
   @override Widget build(BuildContext context) => Scaffold(
     backgroundColor: AppColors.bg,
     appBar: AppBar(title: const Text('АВТО НОМЕРИ')),
-    body: Padding(padding: const EdgeInsets.all(16), child: Column(children: [
-      TextField(controller: _c, style: const TextStyle(color: AppColors.textPri, letterSpacing: 2), textCapitalization: TextCapitalization.characters, decoration: const InputDecoration(labelText: 'НОМЕР (напр. АА1234ВВ)')),
+    body: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      TextField(
+        controller: _c,
+        style: const TextStyle(color: AppColors.textPri, letterSpacing: 2, fontSize: 18),
+        textCapitalization: TextCapitalization.characters,
+        onSubmitted: (_) => _check(),
+        decoration: const InputDecoration(
+          labelText: 'НОМЕР ЗНАК',
+          hintText: 'AA1234BB або АА1234ВВ',
+          prefixIcon: Icon(Icons.directions_car, color: AppColors.accent),
+        ),
+      ),
       const SizedBox(height: 10),
-      ElevatedButton(onPressed: _check, child: const Text('ВИЗНАЧИТИ РЕГІОН', style: TextStyle(color: Colors.white))),
+      ElevatedButton.icon(
+        icon: const Icon(Icons.search, size: 18),
+        label: const Text('ВИЗНАЧИТИ РЕГІОН', style: TextStyle(color: Colors.white)),
+        onPressed: _check,
+      ),
       const SizedBox(height: 30),
-      if (_r.isNotEmpty) Text(_r, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.greenAccent)),
+      if (_r.isNotEmpty) Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(color: Colors.white.withOpacity(0.04), borderRadius: BorderRadius.circular(10), border: Border.all(color: AppColors.uaBlue.withOpacity(0.4))),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('РЕГІОН РЕЄСТРАЦІЇ', style: TextStyle(fontSize: 10, color: AppColors.textSec, letterSpacing: 1)),
+          const SizedBox(height: 8),
+          Text(_r, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.greenAccent)),
+        ]),
+      ),
+      const SizedBox(height: 16),
+      const Text('Підтримуються латинські та кириличні символи', style: TextStyle(fontSize: 10, color: AppColors.textHint)),
     ])),
   );
 }
@@ -1421,7 +1481,7 @@ class VaultScreen extends StatefulWidget {
   @override State<VaultScreen> createState() => _VaultScreenState();
 }
 class _VaultScreenState extends State<VaultScreen> {
-  bool _unlocked = false, _isFirst = true;
+  bool _unlocked = false, _isFirst = true, _loaded = false;
   String _savedMp = "";
   final _mp = TextEditingController();
   List<Map<String, String>> _vault = [];
@@ -1431,9 +1491,14 @@ class _VaultScreenState extends State<VaultScreen> {
   void _load() async {
     final p = await SharedPreferences.getInstance();
     final d = p.getString('vault'); final mp = p.getString('master_pass');
-    if (mp != null && mp.isNotEmpty) { _isFirst = false; _savedMp = mp; }
-    if (d != null && mounted) setState(() => _vault = List<Map<String, String>>.from(json.decode(d).map((x) => Map<String, String>.from(x))));
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    setState(() {
+      if (mp != null && mp.isNotEmpty) { _isFirst = false; _savedMp = mp; }
+      if (d != null) {
+        try { _vault = List<Map<String, String>>.from(json.decode(d).map((x) => Map<String, String>.from(x))); } catch(_) {}
+      }
+      _loaded = true;
+    });
   }
 
   void _saveVault() async { final p = await SharedPreferences.getInstance(); p.setString('vault', json.encode(_vault)); }
@@ -1470,6 +1535,11 @@ class _VaultScreenState extends State<VaultScreen> {
   }
 
   @override Widget build(BuildContext context) {
+    if (!_loaded) return Scaffold(
+      backgroundColor: AppColors.bg,
+      appBar: AppBar(title: const Text('СЕЙФ')),
+      body: const Center(child: CircularProgressIndicator(color: AppColors.uaYellow)),
+    );
     if (_isFirst) return Scaffold(
       backgroundColor: AppColors.bg,
       appBar: AppBar(title: const Text('СЕЙФ [НАЛАШТУВАННЯ]')),
@@ -1513,11 +1583,37 @@ class _VaultScreenState extends State<VaultScreen> {
                   title: Text(_vault[i]['r']!, style: const TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold)),
                   subtitle: Text("${_vault[i]['l']!}\n••••••••", style: const TextStyle(fontSize: 11, color: AppColors.textSec)),
                   isThreeLine: true,
-                  trailing: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                    IconButton(icon: const Icon(Icons.copy, size: 18, color: AppColors.uaYellow), constraints: const BoxConstraints(), padding: EdgeInsets.zero, onPressed: () { Clipboard.setData(ClipboardData(text: _vault[i]['p']!)); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Пароль скопійовано'), backgroundColor: AppColors.uaBlue)); }),
-                    const SizedBox(height: 6),
-                    IconButton(icon: const Icon(Icons.delete, size: 18, color: Colors.red), constraints: const BoxConstraints(), padding: EdgeInsets.zero, onPressed: () { setState(() => _vault.removeAt(i)); _saveVault(); }),
-                  ]),
+                  trailing: SizedBox(
+                    width: 72,
+                    child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+                      IconButton(
+                        icon: const Icon(Icons.copy, size: 18, color: AppColors.uaYellow),
+                        constraints: const BoxConstraints(),
+                        padding: EdgeInsets.zero,
+                        tooltip: 'Копіювати пароль',
+                        onPressed: () {
+                          Clipboard.setData(ClipboardData(text: _vault[i]['p']!));
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Пароль скопійовано'), backgroundColor: AppColors.uaBlue, duration: Duration(seconds: 1)));
+                        },
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.delete, size: 18, color: Colors.red),
+                        constraints: const BoxConstraints(),
+                        padding: EdgeInsets.zero,
+                        tooltip: 'Видалити',
+                        onPressed: () {
+                          showDialog(context: context, builder: (_) => AlertDialog(
+                            backgroundColor: AppColors.bgCard,
+                            title: const Text('Видалити запис?', style: TextStyle(fontSize: 15)),
+                            actions: [
+                              TextButton(onPressed: () => Navigator.pop(context), child: const Text('Ні', style: TextStyle(color: AppColors.textSec))),
+                              ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: Colors.red), onPressed: () { setState(() => _vault.removeAt(i)); _saveVault(); Navigator.pop(context); }, child: const Text('Так')),
+                            ],
+                          ));
+                        },
+                      ),
+                    ]),
+                  ),
                 ),
               ),
             ),
