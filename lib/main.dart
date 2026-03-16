@@ -920,7 +920,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
             style: TextStyle(fontSize: 10, letterSpacing: 1, color: m ? Colors.greenAccent : AppColors.textSec)),
         const SizedBox(height: 8),
         Wrap(spacing: 8, runSpacing: 8, children: [
-          _quickChip('МАГНІТ',     Icons.sensors,         () => Navigator.push(context, MaterialPageRoute(builder: (_) => MagnetoScreen()))),
+          _quickChip('МАГНІТ',     Icons.sensors,         () => Navigator.push(context, MaterialPageRoute(builder: (_) => MagnetoScreen(onLog: (s) {})))),
           _quickChip('СКАНЕР',     Icons.radar,           () => Navigator.push(context, MaterialPageRoute(builder: (_) => ScannerScreen(onLog: _log)))),
           _quickChip('ІПН',        Icons.fingerprint,     () => Navigator.push(context, MaterialPageRoute(builder: (_) => IpnScreen(onLog: _log)))),
           _quickChip('ТЕЛЕФОН',    Icons.phone_outlined,  () => Navigator.push(context, MaterialPageRoute(builder: (_) => PhoneScreen(onLog: _log)))),
@@ -1195,7 +1195,7 @@ class ToolsMenu extends StatelessWidget {
   @override Widget build(BuildContext context) => ListView(
     padding: const EdgeInsets.only(top: 12, bottom: 90),
     children: [
-      _t(context, 'МАГНІТОМЕТР',  'Детектор прихованих пристроїв та жучків',    Icons.sensors,             MagnetoScreen()),
+      _t(context, 'МАГНІТОМЕТР',  'Детектор прихованих пристроїв та жучків',    Icons.sensors,             MagnetoScreen(onLog: (s) {})),
       _t(context, 'DORKS',       'Google Конструктор (Новини, Документи)',      Icons.travel_explore,      DorksScreen(onLog: onLog)),
       _t(context, 'СКАНЕР',      'Екстракція (IP/Телефон/Email/Соцмережі)',     Icons.radar,               ScannerScreen(onLog: onLog)),
       _t(context, 'EXIF',        'Аналіз метаданих фотографій',                 Icons.image_search,        ExifScreen(onLog: onLog)),
