@@ -612,6 +612,7 @@ class ToolsMenu extends StatelessWidget {
       _t(context, 'ІПН',         'Дешифратор РНОКПП (дата/стать/вік)',          Icons.fingerprint,         IpnScreen(onLog: onLog)),
       _t(context, 'ФІНАНСИ',     'Перевірка карток (Алгоритм Луна)',            Icons.credit_card,         FinScreen(onLog: onLog)),
       _t(context, 'АВТО',        'Визначення регіону за номером',               Icons.directions_car,      AutoScreen(onLog: onLog)),
+      _t(context, 'ТЕЛЕФОН',     'Країна, оператор, тип номера',                Icons.phone_outlined,       PhoneScreen(onLog: onLog)),
       _t(context, 'НІКНЕЙМИ',    'Генератор варіантів нікнеймів',               Icons.psychology,          NickScreen(onLog: onLog)),
       _t(context, 'ХРОНОЛОГІЯ',  'Таймлайн подій розслідування',                Icons.timeline,            TimeScreen(onLog: onLog)),
       _t(context, 'СЕЙФ',        'Захищений менеджер паролів',                  Icons.lock,                VaultScreen(onLog: onLog)),
@@ -1369,6 +1370,433 @@ class _AutoScreenState extends State<AutoScreen> {
       const SizedBox(height: 16),
       const Text('Підтримуються латинські та кириличні символи', style: TextStyle(fontSize: 10, color: AppColors.textHint)),
     ])),
+  );
+}
+
+// ─────────────────────────────────────────────
+// АНАЛІЗАТОР ТЕЛЕФОННИХ НОМЕРІВ
+// ─────────────────────────────────────────────
+class PhoneScreen extends StatefulWidget {
+  final Function(String) onLog;
+  const PhoneScreen({super.key, required this.onLog});
+  @override State<PhoneScreen> createState() => _PhoneScreenState();
+}
+
+class _PhoneResult {
+  final String country, flag, operator, type, region, warning;
+  final bool isDangerous;
+  const _PhoneResult({
+    required this.country, required this.flag, required this.operator,
+    required this.type,    required this.region, required this.warning,
+    required this.isDangerous,
+  });
+}
+
+class _PhoneScreenState extends State<PhoneScreen> {
+  final _c = TextEditingController();
+  _PhoneResult? _result;
+
+  // ── База префіксів ──────────────────────────
+  // Структура: 'prefix': [country, flag, operator, type, region, warning, isDangerous(0/1)]
+  static const Map<String, List<dynamic>> _db = {
+    // ═══ УКРАЇНА ═══
+    '+380 50':  ['Україна', '🇺🇦', 'Vodafone UA',  'Мобільний', '', '', 0],
+    '+380 66':  ['Україна', '🇺🇦', 'Vodafone UA',  'Мобільний', '', '', 0],
+    '+380 95':  ['Україна', '🇺🇦', 'Vodafone UA',  'Мобільний', '', '', 0],
+    '+380 99':  ['Україна', '🇺🇦', 'Vodafone UA',  'Мобільний', '', '', 0],
+    '+380 67':  ['Україна', '🇺🇦', 'Kyivstar',     'Мобільний', '', '', 0],
+    '+380 96':  ['Україна', '🇺🇦', 'Kyivstar',     'Мобільний', '', '', 0],
+    '+380 97':  ['Україна', '🇺🇦', 'Kyivstar',     'Мобільний', '', '', 0],
+    '+380 98':  ['Україна', '🇺🇦', 'Kyivstar',     'Мобільний', '', '', 0],
+    '+380 63':  ['Україна', '🇺🇦', 'lifecell',     'Мобільний', '', '', 0],
+    '+380 73':  ['Україна', '🇺🇦', 'lifecell',     'Мобільний', '', '', 0],
+    '+380 93':  ['Україна', '🇺🇦', 'lifecell',     'Мобільний', '', '', 0],
+    '+380 89':  ['Україна', '🇺🇦', 'Ukrtelecom',   'Мобільний', '', '', 0],
+    '+380 91':  ['Україна', '🇺🇦', 'Ukrtelecom',   'Мобільний', '', '', 0],
+    '+380 92':  ['Україна', '🇺🇦', 'VEGA',         'Мобільний', '', '', 0],
+    '+380 94':  ['Україна', '🇺🇦', 'Intertelecom', 'Мобільний (CDMA)', '', '', 0],
+    '+380 44':  ['Україна', '🇺🇦', 'Київ (стаціонарний)', 'Стаціонарний', 'м. Київ', '', 0],
+    '+380 32':  ['Україна', '🇺🇦', 'Львів (стаціонарний)', 'Стаціонарний', 'Львів', '', 0],
+    '+380 57':  ['Україна', '🇺🇦', 'Харків (стаціонарний)', 'Стаціонарний', 'Харків', '', 0],
+    '+380 48':  ['Україна', '🇺🇦', 'Одеса (стаціонарний)', 'Стаціонарний', 'Одеса', '', 0],
+    '+380 56':  ['Україна', '🇺🇦', 'Дніпро (стаціонарний)', 'Стаціонарний', 'Дніпро', '', 0],
+    '+380 62':  ['Україна', '🇺🇦', 'Донецьк (стаціонарний)', 'Стаціонарний', 'Донецьк', '⚠ Окупована територія', 0],
+    '+380 64':  ['Україна', '🇺🇦', 'Луганськ (стаціонарний)', 'Стаціонарний', 'Луганськ', '⚠ Окупована територія', 0],
+    '+380 61':  ['Україна', '🇺🇦', 'Запоріжжя (стаціонарний)', 'Стаціонарний', 'Запоріжжя', '', 0],
+    '+380 512': ['Україна', '🇺🇦', 'Миколаїв (стаціонарний)', 'Стаціонарний', 'Миколаїв', '', 0],
+
+    // ═══ РОСІЯ (небезпечні) ═══
+    '+7 495':  ['Росія', '🇷🇺', 'Москва (стаціонарний)', 'Стаціонарний', 'Москва', '🚨 РОСІЯ', 1],
+    '+7 499':  ['Росія', '🇷🇺', 'Москва (стаціонарний)', 'Стаціонарний', 'Москва', '🚨 РОСІЯ', 1],
+    '+7 812':  ['Росія', '🇷🇺', 'Санкт-Петербург', 'Стаціонарний', 'СПБ', '🚨 РОСІЯ', 1],
+    '+7 900':  ['Росія', '🇷🇺', 'MTS RU',    'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 901':  ['Росія', '🇷🇺', 'MTS RU',    'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 902':  ['Росія', '🇷🇺', 'MTS RU',    'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 903':  ['Росія', '🇷🇺', 'MTS RU',    'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 904':  ['Росія', '🇷🇺', 'MTS RU',    'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 905':  ['Росія', '🇷🇺', 'MTS RU',    'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 906':  ['Росія', '🇷🇺', 'Beeline RU','Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 909':  ['Росія', '🇷🇺', 'MTS RU',    'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 910':  ['Росія', '🇷🇺', 'MTS RU',    'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 911':  ['Росія', '🇷🇺', 'MTS RU',    'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 912':  ['Росія', '🇷🇺', 'Beeline RU','Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 915':  ['Росія', '🇷🇺', 'MTS RU',    'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 916':  ['Росія', '🇷🇺', 'MTS RU',    'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 917':  ['Росія', '🇷🇺', 'Beeline RU','Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 918':  ['Росія', '🇷🇺', 'MTS RU',    'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 919':  ['Росія', '🇷🇺', 'MTS RU',    'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 920':  ['Росія', '🇷🇺', 'Beeline RU','Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 921':  ['Росія', '🇷🇺', 'MTS RU',    'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 922':  ['Росія', '🇷🇺', 'Beeline RU','Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 923':  ['Росія', '🇷🇺', 'MTS RU',    'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 924':  ['Росія', '🇷🇺', 'MTS RU',    'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 925':  ['Росія', '🇷🇺', 'MTS RU',    'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 926':  ['Росія', '🇷🇺', 'MTS RU',    'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 927':  ['Росія', '🇷🇺', 'MTS RU',    'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 928':  ['Росія', '🇷🇺', 'MTS RU',    'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 929':  ['Росія', '🇷🇺', 'MTS RU',    'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 930':  ['Росія', '🇷🇺', 'MTS RU',    'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 931':  ['Росія', '🇷🇺', 'MTS RU',    'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 932':  ['Росія', '🇷🇺', 'Beeline RU','Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 936':  ['Росія', '🇷🇺', 'MTS RU',    'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 937':  ['Росія', '🇷🇺', 'MTS RU',    'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 938':  ['Росія', '🇷🇺', 'MTS RU',    'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 939':  ['Росія', '🇷🇺', 'MTS RU',    'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 950':  ['Росія', '🇷🇺', 'Beeline RU','Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 951':  ['Росія', '🇷🇺', 'MTS RU',    'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 952':  ['Росія', '🇷🇺', 'Beeline RU','Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 953':  ['Росія', '🇷🇺', 'Tele2 RU',  'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 960':  ['Росія', '🇷🇺', 'Beeline RU','Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 961':  ['Росія', '🇷🇺', 'Beeline RU','Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 962':  ['Росія', '🇷🇺', 'Beeline RU','Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 963':  ['Росія', '🇷🇺', 'Tele2 RU',  'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 964':  ['Росія', '🇷🇺', 'Beeline RU','Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 965':  ['Росія', '🇷🇺', 'MTS RU',    'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 966':  ['Росія', '🇷🇺', 'MTS RU',    'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 967':  ['Росія', '🇷🇺', 'Beeline RU','Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 968':  ['Росія', '🇷🇺', 'MTS RU',    'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 969':  ['Росія', '🇷🇺', 'MTS RU',    'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 977':  ['Росія', '🇷🇺', 'MTS RU',    'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 978':  ['Росія', '🇷🇺', 'MTS RU (Крим)', 'Мобільний', 'Крим', '🚨 ОКУПОВАНИЙ КРИМ', 1],
+    '+7 979':  ['Росія', '🇷🇺', 'Beeline RU','Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 980':  ['Росія', '🇷🇺', 'MTS RU',    'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 981':  ['Росія', '🇷🇺', 'MTS RU',    'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 982':  ['Росія', '🇷🇺', 'Beeline RU','Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 983':  ['Росія', '🇷🇺', 'MTS RU',    'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 984':  ['Росія', '🇷🇺', 'MTS RU',    'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 985':  ['Росія', '🇷🇺', 'MTS RU',    'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 986':  ['Росія', '🇷🇺', 'MTS RU',    'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 987':  ['Росія', '🇷🇺', 'MTS RU',    'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 988':  ['Росія', '🇷🇺', 'MTS RU',    'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 989':  ['Росія', '🇷🇺', 'MTS RU',    'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 993':  ['Росія', '🇷🇺', 'MTS RU',    'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 994':  ['Росія', '🇷🇺', 'Beeline RU','Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 995':  ['Росія', '🇷🇺', 'Tele2 RU',  'Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 996':  ['Росія', '🇷🇺', 'Beeline RU','Мобільний', '', '🚨 РОСІЯ', 1],
+    '+7 999':  ['Росія', '🇷🇺', 'Beeline RU','Мобільний', '', '🚨 РОСІЯ', 1],
+
+    // ═══ БІЛОРУСЬ (небезпечні) ═══
+    '+375 17': ['Білорусь', '🇧🇾', 'Мінськ (стаціонарний)', 'Стаціонарний', 'Мінськ', '⚠ БІЛОРУСЬ', 1],
+    '+375 25': ['Білорусь', '🇧🇾', 'life:) BY',  'Мобільний', '', '⚠ БІЛОРУСЬ', 1],
+    '+375 29': ['Білорусь', '🇧🇾', 'Velcom BY',  'Мобільний', '', '⚠ БІЛОРУСЬ', 1],
+    '+375 33': ['Білорусь', '🇧🇾', 'MTS BY',     'Мобільний', '', '⚠ БІЛОРУСЬ', 1],
+    '+375 44': ['Білорусь', '🇧🇾', 'Velcom BY',  'Мобільний', '', '⚠ БІЛОРУСЬ', 1],
+
+    // ═══ ПОЛЬЩА ═══
+    '+48 50':  ['Польща', '🇵🇱', 'Orange PL', 'Мобільний', '', '', 0],
+    '+48 51':  ['Польща', '🇵🇱', 'Orange PL', 'Мобільний', '', '', 0],
+    '+48 53':  ['Польща', '🇵🇱', 'Play PL',   'Мобільний', '', '', 0],
+    '+48 57':  ['Польща', '🇵🇱', 'Orange PL', 'Мобільний', '', '', 0],
+    '+48 60':  ['Польща', '🇵🇱', 'Polkomtel', 'Мобільний', '', '', 0],
+    '+48 66':  ['Польща', '🇵🇱', 'Play PL',   'Мобільний', '', '', 0],
+    '+48 69':  ['Польща', '🇵🇱', 'T-Mobile PL','Мобільний', '', '', 0],
+    '+48 72':  ['Польща', '🇵🇱', 'Play PL',   'Мобільний', '', '', 0],
+    '+48 73':  ['Польща', '🇵🇱', 'Orange PL', 'Мобільний', '', '', 0],
+    '+48 78':  ['Польща', '🇵🇱', 'T-Mobile PL','Мобільний', '', '', 0],
+    '+48 79':  ['Польща', '🇵🇱', 'T-Mobile PL','Мобільний', '', '', 0],
+
+    // ═══ ІНШІ КРАЇНИ ═══
+    '+1':   ['США / Канада', '🇺🇸', 'Різні оператори', 'Мобільний/Стаціонарний', '', '', 0],
+    '+44':  ['Великобританія', '🇬🇧', 'Різні оператори', 'Мобільний/Стаціонарний', '', '', 0],
+    '+49':  ['Німеччина', '🇩🇪', 'Різні оператори', 'Мобільний/Стаціонарний', '', '', 0],
+    '+33':  ['Франція', '🇫🇷', 'Різні оператори', 'Мобільний/Стаціонарний', '', '', 0],
+    '+34':  ['Іспанія', '🇪🇸', 'Різні оператори', 'Мобільний/Стаціонарний', '', '', 0],
+    '+39':  ['Італія', '🇮🇹', 'Різні оператори', 'Мобільний/Стаціонарний', '', '', 0],
+    '+40':  ['Румунія', '🇷🇴', 'Різні оператори', 'Мобільний/Стаціонарний', '', '', 0],
+    '+41':  ['Швейцарія', '🇨🇭', 'Різні оператори', 'Мобільний/Стаціонарний', '', '', 0],
+    '+420': ['Чехія', '🇨🇿', 'Різні оператори', 'Мобільний/Стаціонарний', '', '', 0],
+    '+43':  ['Австрія', '🇦🇹', 'Різні оператори', 'Мобільний/Стаціонарний', '', '', 0],
+    '+45':  ['Данія', '🇩🇰', 'Різні оператори', 'Мобільний/Стаціонарний', '', '', 0],
+    '+46':  ['Швеція', '🇸🇪', 'Різні оператори', 'Мобільний/Стаціонарний', '', '', 0],
+    '+47':  ['Норвегія', '🇳🇴', 'Різні оператори', 'Мобільний/Стаціонарний', '', '', 0],
+    '+358': ['Фінляндія', '🇫🇮', 'Різні оператори', 'Мобільний/Стаціонарний', '', '', 0],
+    '+359': ['Болгарія', '🇧🇬', 'Різні оператори', 'Мобільний/Стаціонарний', '', '', 0],
+    '+36':  ['Угорщина', '🇭🇺', 'Різні оператори', 'Мобільний/Стаціонарний', '', '', 0],
+    '+370': ['Литва', '🇱🇹', 'Різні оператори', 'Мобільний/Стаціонарний', '', '', 0],
+    '+371': ['Латвія', '🇱🇻', 'Різні оператори', 'Мобільний/Стаціонарний', '', '', 0],
+    '+372': ['Естонія', '🇪🇪', 'Різні оператори', 'Мобільний/Стаціонарний', '', '', 0],
+    '+373': ['Молдова', '🇲🇩', 'Різні оператори', 'Мобільний/Стаціонарний', '', '', 0],
+    '+374': ['Вірменія', '🇦🇲', 'Різні оператори', 'Мобільний/Стаціонарний', '', '', 0],
+    '+380': ['Україна', '🇺🇦', 'Невідомий оператор', 'Мобільний', '', '', 0],
+    '+381': ['Сербія', '🇷🇸', 'Різні оператори', 'Мобільний/Стаціонарний', '', '', 0],
+    '+385': ['Хорватія', '🇭🇷', 'Різні оператори', 'Мобільний/Стаціонарний', '', '', 0],
+    '+386': ['Словенія', '🇸🇮', 'Різні оператори', 'Мобільний/Стаціонарний', '', '', 0],
+    '+389': ['Македонія', '🇲🇰', 'Різні оператори', 'Мобільний/Стаціонарний', '', '', 0],
+    '+90':  ['Туреччина', '🇹🇷', 'Різні оператори', 'Мобільний/Стаціонарний', '', '', 0],
+    '+91':  ['Індія', '🇮🇳', 'Різні оператори', 'Мобільний/Стаціонарний', '', '', 0],
+    '+86':  ['Китай', '🇨🇳', 'Різні оператори', 'Мобільний/Стаціонарний', '', '', 0],
+    '+82':  ['Південна Корея', '🇰🇷', 'Різні оператори', 'Мобільний/Стаціонарний', '', '', 0],
+    '+81':  ['Японія', '🇯🇵', 'Різні оператори', 'Мобільний/Стаціонарний', '', '', 0],
+    '+972': ['Ізраїль', '🇮🇱', 'Різні оператори', 'Мобільний/Стаціонарний', '', '', 0],
+    '+966': ['Саудівська Аравія', '🇸🇦', 'Різні оператори', 'Мобільний/Стаціонарний', '', '', 0],
+    '+971': ['ОАЕ', '🇦🇪', 'Різні оператори', 'Мобільний/Стаціонарний', '', '', 0],
+    '+994': ['Азербайджан', '🇦🇿', 'Різні оператори', 'Мобільний/Стаціонарний', '', '', 0],
+    '+995': ['Грузія', '🇬🇪', 'Різні оператори', 'Мобільний/Стаціонарний', '', '', 0],
+    '+998': ['Узбекистан', '🇺🇿', 'Різні оператори', 'Мобільний/Стаціонарний', '', '', 0],
+    '+7':   ['Росія/Казахстан', '🇷🇺', 'Невідомий оператор', 'Мобільний', '', '🚨 РОСІЯ або Казахстан', 1],
+  };
+
+  // ── Нормалізація вводу ──────────────────────
+  String _normalize(String raw) {
+    // Залишаємо тільки цифри і +
+    String s = raw.replaceAll(RegExp(r'[\s\-\(\)\.—]'), '');
+    // 0XX → +380XX (без коду)
+    if (s.startsWith('0') && !s.startsWith('00')) s = '+380$s';
+    // 380XX → +380XX
+    if (s.startsWith('380')) s = '+$s';
+    // 8 0XX → +380XX (рос. формат)
+    if (s.startsWith('80')) s = '+3${s.substring(1)}';
+    if (!s.startsWith('+')) s = '+$s';
+    return s;
+  }
+
+  // ── Пошук по базі ───────────────────────────
+  _PhoneResult? _lookup(String normalized) {
+    // Спробуємо від найдовшого префіксу до найкоротшого
+    // Максимальна довжина ключа у базі ~ 10 символів (+380 512)
+    for (int len = 10; len >= 2; len--) {
+      if (normalized.length < len) continue;
+      final key = normalized.substring(0, len);
+      if (_db.containsKey(key)) {
+        final v = _db[key]!;
+        return _PhoneResult(
+          country:     v[0] as String,
+          flag:        v[1] as String,
+          operator:    v[2] as String,
+          type:        v[3] as String,
+          region:      v[4] as String,
+          warning:     v[5] as String,
+          isDangerous: (v[6] as int) == 1,
+        );
+      }
+    }
+    return null;
+  }
+
+  void _analyze() {
+    FocusScope.of(context).unfocus();
+    final raw = _c.text.trim();
+    if (raw.isEmpty) return;
+    final normalized = _normalize(raw);
+    final result = _lookup(normalized);
+    setState(() => _result = result);
+    if (result != null) {
+      widget.onLog('ТЕЛЕФОН: ${result.country} / ${result.operator} — $raw');
+    } else {
+      widget.onLog('ТЕЛЕФОН: номер не розпізнано — $raw');
+    }
+  }
+
+  @override void dispose() { _c.dispose(); super.dispose(); }
+
+  @override Widget build(BuildContext context) {
+    final r = _result;
+    return Scaffold(
+      backgroundColor: AppColors.bg,
+      appBar: AppBar(title: const Text('АНАЛІЗ НОМЕРА')),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+
+          // ── Поле вводу ──
+          Row(children: [
+            Expanded(child: TextField(
+              controller: _c,
+              keyboardType: TextInputType.phone,
+              style: const TextStyle(
+                color: AppColors.textPri,
+                fontFamily: 'monospace',
+                fontSize: 18,
+                letterSpacing: 2,
+              ),
+              decoration: const InputDecoration(
+                labelText: 'НОМЕР ТЕЛЕФОНУ',
+                hintText: '+380 67 123 4567',
+                prefixIcon: Icon(Icons.phone_outlined, color: AppColors.accent, size: 20),
+              ),
+              onSubmitted: (_) => _analyze(),
+            )),
+            const SizedBox(width: 10),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.uaBlue,
+                minimumSize: const Size(60, 56),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: _analyze,
+              child: const Icon(Icons.search, color: Colors.white),
+            ),
+          ]),
+
+          const SizedBox(height: 8),
+          const Text(
+            'Підтримує формати: +380671234567 · 0671234567 · 380671234567',
+            style: TextStyle(fontSize: 10, color: AppColors.textHint),
+          ),
+
+          const SizedBox(height: 20),
+
+          // ── Результат ──
+          if (r == null && _c.text.isNotEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.red.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.red.withOpacity(0.3)),
+              ),
+              child: const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('НЕ РОЗПІЗНАНО', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 13)),
+                SizedBox(height: 4),
+                Text('Номер не знайдено в базі префіксів.\nПеревірте формат або додайте +код_країни.',
+                    style: TextStyle(color: AppColors.textSec, fontSize: 11)),
+              ]),
+            ),
+
+          if (r != null) ...[
+            // Блок небезпеки
+            if (r.isDangerous)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(
+                  color: Colors.red.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.redAccent.withOpacity(0.5)),
+                ),
+                child: Row(children: [
+                  const Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(child: Text(r.warning,
+                      style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 13))),
+                ]),
+              ),
+
+            // Основний блок результату
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(r.isDangerous ? 0.02 : 0.04),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: r.isDangerous
+                      ? Colors.red.withOpacity(0.3)
+                      : AppColors.uaBlue.withOpacity(0.4),
+                ),
+              ),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                // Прапор + Країна
+                Row(children: [
+                  Text(r.flag, style: const TextStyle(fontSize: 32)),
+                  const SizedBox(width: 12),
+                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(r.country, style: const TextStyle(
+                      fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textPri,
+                    )),
+                    if (r.region.isNotEmpty)
+                      Text(r.region, style: const TextStyle(fontSize: 12, color: AppColors.textSec)),
+                  ])),
+                ]),
+
+                const SizedBox(height: 16),
+                const Divider(color: AppColors.border, height: 1),
+                const SizedBox(height: 14),
+
+                // Рядки деталей
+                _row(Icons.cell_tower_outlined,     'ОПЕРАТОР', r.operator),
+                const SizedBox(height: 10),
+                _row(Icons.phone_android_outlined,  'ТИП',      r.type),
+                const SizedBox(height: 10),
+                _row(Icons.tag,                     'ВВЕДЕНО',  _normalize(_c.text)),
+              ]),
+            ),
+
+            const SizedBox(height: 12),
+
+            // Кнопки дій
+            Row(children: [
+              Expanded(child: OutlinedButton.icon(
+                icon: const Icon(Icons.copy, size: 16, color: AppColors.textSec),
+                label: const Text('COPY', style: TextStyle(color: AppColors.textSec, letterSpacing: 0.8)),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: AppColors.border),
+                  minimumSize: const Size(0, 46),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                onPressed: () {
+                  final text = '${r.flag} ${r.country}\nОператор: ${r.operator}\nТип: ${r.type}${r.region.isNotEmpty ? '\nРегіон: ${r.region}' : ''}${r.warning.isNotEmpty ? '\n${r.warning}' : ''}';
+                  Clipboard.setData(ClipboardData(text: text));
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                    content: Text('Скопійовано результат'), backgroundColor: AppColors.uaBlue,
+                    duration: Duration(seconds: 1),
+                  ));
+                },
+              )),
+              const SizedBox(width: 10),
+              Expanded(child: ElevatedButton.icon(
+                icon: const Icon(Icons.share, size: 16),
+                label: const Text('SHARE', style: TextStyle(letterSpacing: 0.8)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.uaYellow,
+                  foregroundColor: Colors.black,
+                  minimumSize: const Size(0, 46),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                onPressed: () {
+                  final text = 'Аналіз номера ${_c.text}:\n${r.flag} ${r.country}\nОператор: ${r.operator}\nТип: ${r.type}${r.warning.isNotEmpty ? '\n${r.warning}' : ''}';
+                  Share.share(text);
+                },
+              )),
+            ]),
+          ],
+
+          const Spacer(),
+
+          // Підказка внизу
+          Center(child: Text(
+            'База: Україна (25 префіксів) · Росія (50+) · Білорусь · Польща · 30+ країн',
+            style: const TextStyle(fontSize: 9, color: AppColors.textHint),
+            textAlign: TextAlign.center,
+          )),
+          const SizedBox(height: 8),
+        ]),
+      ),
+    );
+  }
+
+  Widget _row(IconData icon, String label, String value) => Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Icon(icon, size: 15, color: AppColors.accent),
+      const SizedBox(width: 8),
+      SizedBox(width: 80, child: Text(label,
+          style: const TextStyle(fontSize: 11, color: AppColors.textSec, letterSpacing: 0.5))),
+      Expanded(child: Text(value,
+          style: const TextStyle(fontSize: 13, color: AppColors.textPri, fontWeight: FontWeight.w500))),
+    ],
   );
 }
 
