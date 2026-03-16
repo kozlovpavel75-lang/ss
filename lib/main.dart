@@ -2678,8 +2678,7 @@ class _PhoneScreenState extends State<PhoneScreen> {
         ]),
       ),
       );
-      },
-    );
+
   }
 
   Widget _row(IconData icon, String label, String value) => Row(
