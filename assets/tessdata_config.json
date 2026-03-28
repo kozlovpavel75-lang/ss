@@ -1,0 +1,16 @@
+{
+  "files": [
+    {
+      "url": "",
+      "file": "ukr.traineddata"
+    },
+    {
+      "url": "",
+      "file": "rus.traineddata"
+    },
+    {
+      "url": "",
+      "file": "eng.traineddata"
+    }
+  ]
+}
