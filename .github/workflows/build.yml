@@ -1,0 +1,45 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:   # ← ТІЛЬКИ РУЧНИЙ ЗАПУСК (авто-білд вимкнено)
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+      - name: Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.22.2'
+          channel: 'stable'
+      - name: Create and Patch Project
+        run: |
+          mkdir temp
+          mv lib/main.dart temp/
+          mv pubspec.yaml temp/
+          flutter create --platforms android --project-name prompt_library .
+          mv temp/main.dart lib/main.dart
+          mv temp/pubspec.yaml pubspec.yaml
+          
+          sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/g' android/app/build.gradle
+          sed -i 's/compileSdkVersion flutter.compileSdkVersion/compileSdkVersion 34/g' android/app/build.gradle
+          
+          echo "configurations.all { resolutionStrategy { force 'org.jetbrains.kotlin:kotlin-stdlib:1.8.22'; force 'org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.8.22'; force 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.22' } }" >> android/app/build.gradle
+
+      - name: Build APK
+        run: |
+          flutter pub get
+          dart run flutter_launcher_icons
+          flutter build apk --release --no-tree-shake-icons
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: PromptLibrary-APK
+          path: build/app/outputs/flutter-apk/app-release.apk
